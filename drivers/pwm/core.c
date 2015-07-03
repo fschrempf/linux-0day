@@ -959,6 +959,11 @@ static void pwm_dbg_show(struct pwm_chip *chip, struct seq_file *s)
 		if (pstate.enabled)
 			seq_puts(s, " enabled");
 
+		seq_printf(s, " period:%uns", pstate.period);
+		seq_printf(s, " duty:%uns", pstate.duty_cycle);
+		seq_printf(s, " polarity:%s",
+			   pstate.polarity ? "inverse" : "normal");
+
 		seq_puts(s, "\n");
 	}
 }
