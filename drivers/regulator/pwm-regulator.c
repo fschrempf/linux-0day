@@ -35,9 +35,6 @@ struct pwm_regulator_data {
 	struct regulator_ops ops;
 
 	int state;
-
-	/* Continuous voltage */
-	int volt_uV;
 };
 
 struct pwm_voltages {
@@ -167,11 +164,27 @@ static int pwm_voltage_to_duty_cycle_percentage(struct regulator_dev *rdev, int 
 	return ((req_uV * 100) - (min_uV * 100)) / diff;
 }
 
+static int pwm_duty_cycle_percentage_to_voltage(struct regulator_dev *rdev,
+						int dutycycle)
+{
+	int min_uV = rdev->constraints->min_uV;
+	int max_uV = rdev->constraints->max_uV;
+	int diff = max_uV - min_uV;
+
+	return min_uV + ((diff * dutycycle) / 100);
+}
+
 static int pwm_regulator_get_voltage(struct regulator_dev *rdev)
 {
 	struct pwm_regulator_data *drvdata = rdev_get_drvdata(rdev);
+	struct pwm_state pstate;
+	u64 dutycycle;
 
-	return drvdata->volt_uV;
+	pwm_get_state(drvdata->pwm, &pstate);
+	dutycycle = pstate.duty_cycle * 100;
+	do_div(dutycycle, pstate.period);
+
+	return pwm_duty_cycle_percentage_to_voltage(rdev, dutycycle);
 }
 
 static int pwm_regulator_set_voltage(struct regulator_dev *rdev,
@@ -195,8 +208,6 @@ static int pwm_regulator_set_voltage(struct regulator_dev *rdev,
 		dev_err(&rdev->dev, "Failed to configure PWM\n");
 		return ret;
 	}
-
-	drvdata->volt_uV = min_uV;
 
 	/* Delay required by PWM regulator to settle to the new voltage */
 	usleep_range(ramp_delay, ramp_delay + 1000);
