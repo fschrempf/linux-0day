@@ -252,11 +252,64 @@ static void sun4i_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 	clk_disable_unprepare(sun4i_pwm->clk);
 }
 
+static void sun4i_pwm_get_state(struct pwm_chip *chip,
+				struct pwm_device *pwm,
+				struct pwm_state *state)
+{
+	struct sun4i_pwm_chip *sun4i_pwm = to_sun4i_pwm_chip(chip);
+	unsigned int clk_rate = clk_get_rate(sun4i_pwm->clk);
+	int prescaler, prescalerid;
+	int ret;
+	u32 val;
+
+	ret = clk_prepare_enable(sun4i_pwm->clk);
+	if (ret) {
+		dev_err(chip->dev, "Failed to enable PWM clock");
+		return;
+	}
+
+	val = sun4i_pwm_readl(sun4i_pwm, PWM_CTRL_REG);
+	if (val & BIT_CH(PWM_ACT_STATE, pwm->hwpwm))
+		state->polarity = PWM_POLARITY_INVERSED;
+	else
+		state->polarity = PWM_POLARITY_NORMAL;
+
+	if ((val & BIT_CH(PWM_EN, pwm->hwpwm)) &&
+	    (val & BIT_CH(PWM_CLK_GATING, pwm->hwpwm)))
+		state->enabled = true;
+	else
+		state->enabled = false;
+
+	state->period = 0;
+	state->duty_cycle = 0;
+	prescalerid = (val >> (PWMCH_OFFSET * pwm->hwpwm)) & PWM_PRESCAL_MASK;
+	prescaler = prescaler_table[prescalerid];
+	if (prescaler) {
+		u64 timens;
+
+		clk_rate /= prescaler;
+
+		val = sun4i_pwm_readl(sun4i_pwm, PWM_CH_PRD(pwm->hwpwm));
+
+		timens = ((val >> 16) & PWM_PRD_MASK) + 1;
+		state->period = DIV_ROUND_CLOSEST_ULL(timens * NSEC_PER_SEC,
+						      clk_rate);
+
+		timens = val & PWM_DTY_MASK;
+		state->duty_cycle = DIV_ROUND_CLOSEST_ULL(timens *
+							  NSEC_PER_SEC,
+							  clk_rate);
+	}
+
+	clk_disable_unprepare(sun4i_pwm->clk);
+}
+
 static const struct pwm_ops sun4i_pwm_ops = {
 	.config = sun4i_pwm_config,
 	.set_polarity = sun4i_pwm_set_polarity,
 	.enable = sun4i_pwm_enable,
 	.disable = sun4i_pwm_disable,
+	.get_state = sun4i_pwm_get_state,
 	.owner = THIS_MODULE,
 };
 
@@ -307,8 +360,7 @@ static int sun4i_pwm_probe(struct platform_device *pdev)
 {
 	struct sun4i_pwm_chip *pwm;
 	struct resource *res;
-	u32 val;
-	int i, ret;
+	int ret;
 	const struct of_device_id *match;
 
 	match = of_match_device(sun4i_pwm_dt_ids, &pdev->dev);
@@ -345,24 +397,7 @@ static int sun4i_pwm_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwm);
 
-	ret = clk_prepare_enable(pwm->clk);
-	if (ret) {
-		dev_err(&pdev->dev, "failed to enable PWM clock\n");
-		goto clk_error;
-	}
-
-	val = sun4i_pwm_readl(pwm, PWM_CTRL_REG);
-	for (i = 0; i < pwm->chip.npwm; i++)
-		if (!(val & BIT_CH(PWM_ACT_STATE, i)))
-			pwm_set_polarity(&pwm->chip.pwms[i],
-					 PWM_POLARITY_INVERSED);
-	clk_disable_unprepare(pwm->clk);
-
 	return 0;
-
-clk_error:
-	pwmchip_remove(&pwm->chip);
-	return ret;
 }
 
 static int sun4i_pwm_remove(struct platform_device *pdev)
