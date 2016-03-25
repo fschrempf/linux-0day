@@ -947,13 +947,16 @@ static void pwm_dbg_show(struct pwm_chip *chip, struct seq_file *s)
 
 	for (i = 0; i < chip->npwm; i++) {
 		struct pwm_device *pwm = &chip->pwms[i];
+		struct pwm_state pstate;
+
+		pwm_get_state(pwm, &pstate);
 
 		seq_printf(s, " pwm-%-3d (%-20.20s):", i, pwm->label);
 
 		if (test_bit(PWMF_REQUESTED, &pwm->flags))
 			seq_puts(s, " requested");
 
-		if (pwm_is_enabled(pwm))
+		if (pstate.enabled)
 			seq_puts(s, " enabled");
 
 		seq_puts(s, "\n");
