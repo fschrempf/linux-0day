@@ -343,7 +343,7 @@ static int sti_pwm_probe(struct platform_device *pdev)
 	struct sti_pwm_compat_data *cdata;
 	struct sti_pwm_chip *pc;
 	struct resource *res;
-	int ret;
+	int i, ret;
 
 	pc = devm_kzalloc(dev, sizeof(*pc), GFP_KERNEL);
 	if (!pc)
@@ -394,7 +394,7 @@ static int sti_pwm_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	ret = clk_prepare(pc->clk);
+	ret = clk_prepare_enable(pc->clk);
 	if (ret) {
 		dev_err(dev, "failed to prepare clock\n");
 		return ret;
@@ -411,6 +411,19 @@ static int sti_pwm_probe(struct platform_device *pdev)
 		clk_unprepare(pc->clk);
 		return ret;
 	}
+
+	/*
+	 * Keep the PWM clk enabled if some PWMs appear to be up and
+	 * running.
+	 */
+	for (i = 0; i < pc->chip.npwm; i++) {
+		struct pwm_state pstate;
+
+		pwm_get_state(&pc->chip.pwms[i], &pstate);
+		if (pstate.enabled)
+			clk_enable(pc->clk);
+	}
+	clk_disable(pc->clk);
 
 	platform_set_drvdata(pdev, pc);
 
