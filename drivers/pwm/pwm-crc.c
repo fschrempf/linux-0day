@@ -48,55 +48,6 @@ static inline struct crystalcove_pwm *to_crc_pwm(struct pwm_chip *pc)
 	return container_of(pc, struct crystalcove_pwm, chip);
 }
 
-static int crc_pwm_enable(struct pwm_chip *c, struct pwm_device *pwm)
-{
-	struct crystalcove_pwm *crc_pwm = to_crc_pwm(c);
-
-	regmap_write(crc_pwm->regmap, BACKLIGHT_EN, 1);
-
-	return 0;
-}
-
-static void crc_pwm_disable(struct pwm_chip *c, struct pwm_device *pwm)
-{
-	struct crystalcove_pwm *crc_pwm = to_crc_pwm(c);
-
-	regmap_write(crc_pwm->regmap, BACKLIGHT_EN, 0);
-}
-
-static int crc_pwm_config(struct pwm_chip *c, struct pwm_device *pwm,
-			  int duty_ns, int period_ns)
-{
-	struct crystalcove_pwm *crc_pwm = to_crc_pwm(c);
-	struct device *dev = crc_pwm->chip.dev;
-	int level;
-
-	if (period_ns > PWM_MAX_PERIOD_NS) {
-		dev_err(dev, "un-supported period_ns\n");
-		return -EINVAL;
-	}
-
-	if (pwm_get_period(pwm) != period_ns) {
-		int clk_div;
-
-		/* changing the clk divisor, need to disable fisrt */
-		crc_pwm_disable(c, pwm);
-		clk_div = PWM_BASE_CLK * period_ns / NSEC_PER_SEC;
-
-		regmap_write(crc_pwm->regmap, PWM0_CLK_DIV,
-					clk_div | PWM_OUTPUT_ENABLE);
-
-		/* enable back */
-		crc_pwm_enable(c, pwm);
-	}
-
-	/* change the pwm duty cycle */
-	level = duty_ns * PWM_MAX_LEVEL / period_ns;
-	regmap_write(crc_pwm->regmap, PWM0_DUTY_CYCLE, level);
-
-	return 0;
-}
-
 static void crc_pwm_get_state(struct pwm_chip *c,
 			      struct pwm_device *pwm,
 			      struct pwm_state *pstate)
@@ -125,11 +76,56 @@ static void crc_pwm_get_state(struct pwm_chip *c,
 		enabled = false;
 }
 
+static int crc_pwm_apply(struct pwm_chip *c, struct pwm_device *pwm,
+			 struct pwm_state *nstate)
+{
+	struct crystalcove_pwm *crc_pwm = to_crc_pwm(c);
+	struct pwm_state state;
+
+	if (nstate->polarity == PWM_POLARITY_INVERSED)
+		return -ENOTSUPP;
+
+	pwm_get_state(pwm, &state);
+
+	if (state.period != nstate->period) {
+		u64 clk_div;
+
+		if (state.enabled) {
+			/* changing the clk divisor, need to disable fisrt */
+			regmap_write(crc_pwm->regmap, BACKLIGHT_EN, 0);
+			state.enabled = false;
+		}
+
+		clk_div = PWM_BASE_CLK * nstate->period;
+		do_div(clk_div, NSEC_PER_SEC);
+
+		regmap_write(crc_pwm->regmap, PWM0_CLK_DIV,
+			     clk_div | PWM_OUTPUT_ENABLE);
+	}
+
+	if (state.duty_cycle != nstate->duty_cycle ||
+	    state.period != nstate->period) {
+		u64 level;
+
+		/* change the pwm duty cycle */
+		level = nstate->duty_cycle * PWM_MAX_LEVEL;
+		do_div(level, nstate->period);
+		regmap_write(crc_pwm->regmap, PWM0_DUTY_CYCLE, level);
+	}
+
+	if (state.enabled != nstate->enabled)
+		regmap_write(crc_pwm->regmap, BACKLIGHT_EN,
+			    nstate->enabled ? 1 : 0);
+
+	/* Update state with the real hardware value */
+	crc_pwm_get_state(c, pwm, nstate);
+
+	return 0;
+}
+
 static const struct pwm_ops crc_pwm_ops = {
-	.config = crc_pwm_config,
-	.enable = crc_pwm_enable,
-	.disable = crc_pwm_disable,
 	.get_state = crc_pwm_get_state,
+	.apply = crc_pwm_apply,
 };
 
 static int crystalcove_pwm_probe(struct platform_device *pdev)
