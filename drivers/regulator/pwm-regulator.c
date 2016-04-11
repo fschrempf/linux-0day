@@ -21,12 +21,21 @@
 #include <linux/of_device.h>
 #include <linux/pwm.h>
 
+struct pwm_continous_reg_data {
+	unsigned int min_uV_dutycycle;
+	unsigned int max_uV_dutycycle;
+	unsigned int dutycycle_unit;
+};
+
 struct pwm_regulator_data {
 	/*  Shared */
 	struct pwm_device *pwm;
 
 	/* Voltage table */
 	struct pwm_voltages *duty_cycle_table;
+
+	/* Continous mode info */
+	struct pwm_continous_reg_data continuous;
 
 	/* regulator descriptor */
 	struct regulator_desc desc;
@@ -155,36 +164,71 @@ static int pwm_regulator_is_enabled(struct regulator_dev *dev)
 /**
  * Continuous voltage call-backs
  */
-static int pwm_voltage_to_duty_cycle_percentage(struct regulator_dev *rdev, int req_uV)
+static void pwm_voltage_to_state(struct regulator_dev *rdev,
+				 struct pwm_state *pstate,
+				 int req_uV)
 {
+	struct pwm_regulator_data *drvdata = rdev_get_drvdata(rdev);
 	int min_uV = rdev->constraints->min_uV;
 	int max_uV = rdev->constraints->max_uV;
-	int diff = max_uV - min_uV;
+	int diff_uV = max_uV - min_uV;
+	unsigned int duty_unit = drvdata->continuous.dutycycle_unit;
+	s64 diff_duty = (s64)drvdata->continuous.max_uV_dutycycle -
+			drvdata->continuous.min_uV_dutycycle;
+	u64 dutycycle;
 
-	return ((req_uV * 100) - (min_uV * 100)) / diff;
+	dutycycle = (u64)(req_uV - min_uV) * duty_unit * abs(diff_duty);
+	do_div(dutycycle, diff_uV);
+
+	if (diff_duty < 0)
+		dutycycle = drvdata->continuous.min_uV_dutycycle - dutycycle;
+	else
+		dutycycle += drvdata->continuous.min_uV_dutycycle;
+
+	dutycycle *= pstate->period;
+	do_div(dutycycle, duty_unit);
+
+	pstate->duty_cycle = dutycycle;
 }
 
-static int pwm_duty_cycle_percentage_to_voltage(struct regulator_dev *rdev,
-						int dutycycle)
+static int pwm_state_to_voltage(struct regulator_dev *rdev,
+				struct pwm_state *pstate)
 {
+	struct pwm_regulator_data *drvdata = rdev_get_drvdata(rdev);
 	int min_uV = rdev->constraints->min_uV;
 	int max_uV = rdev->constraints->max_uV;
-	int diff = max_uV - min_uV;
+	int diff_uV = max_uV - min_uV;
+	unsigned int duty_unit = drvdata->continuous.dutycycle_unit;
+	s64 diff_duty = drvdata->continuous.max_uV_dutycycle -
+			drvdata->continuous.min_uV_dutycycle;
+	u64 voltage;
 
-	return min_uV + ((diff * dutycycle) / 100);
+	voltage = (u64)pstate->duty_cycle * duty_unit;
+	do_div(voltage, pstate->period);
+
+	if (diff_duty < 0)
+		voltage = drvdata->continuous.min_uV_dutycycle - voltage;
+	else
+		voltage -= drvdata->continuous.min_uV_dutycycle;
+
+	voltage *= diff_uV;
+	do_div(voltage, duty_unit * abs(diff_duty));
+
+	if (diff_duty < 0)
+		voltage = min_uV - voltage;
+	else
+		voltage = min_uV + voltage;
+
+	return voltage;
 }
 
 static int pwm_regulator_get_voltage(struct regulator_dev *rdev)
 {
 	struct pwm_regulator_data *drvdata = rdev_get_drvdata(rdev);
 	struct pwm_state pstate;
-	u64 dutycycle;
 
 	pwm_get_state(drvdata->pwm, &pstate);
-	dutycycle = pstate.duty_cycle * 100;
-	do_div(dutycycle, pstate.period);
-
-	return pwm_duty_cycle_percentage_to_voltage(rdev, dutycycle);
+	return pwm_state_to_voltage(rdev, &pstate);
 }
 
 static int pwm_regulator_set_voltage(struct regulator_dev *rdev,
@@ -194,14 +238,10 @@ static int pwm_regulator_set_voltage(struct regulator_dev *rdev,
 	struct pwm_regulator_data *drvdata = rdev_get_drvdata(rdev);
 	unsigned int ramp_delay = rdev->constraints->ramp_delay;
 	struct pwm_state pstate;
-	u64 duty_cycle;
 	int ret;
 
 	pwm_get_state(drvdata->pwm, &pstate);
-	duty_cycle = pwm_voltage_to_duty_cycle_percentage(rdev, min_uV);
-	duty_cycle *= pstate.period;
-	do_div(duty_cycle, 100);
-	pstate.duty_cycle = duty_cycle;
+	pwm_voltage_to_state(rdev, &pstate, min_uV);
 
 	ret = pwm_apply_state(drvdata->pwm, &pstate);
 	if (ret) {
@@ -283,10 +323,27 @@ static int pwm_regulator_init_table(struct platform_device *pdev,
 static int pwm_regulator_init_continuous(struct platform_device *pdev,
 					 struct pwm_regulator_data *drvdata)
 {
+	u32 dutycycle_range[2] = { 0, 100 };
+	u32 dutycycle_unit = 100;
+
 	memcpy(&drvdata->ops, &pwm_regulator_voltage_continuous_ops,
 	       sizeof(drvdata->ops));
 	drvdata->desc.ops = &drvdata->ops;
 	drvdata->desc.continuous_voltage_range = true;
+
+	of_property_read_u32_array(pdev->dev.of_node,
+				   "pwm-dutycycle-range",
+				   dutycycle_range, 2);
+	of_property_read_u32(pdev->dev.of_node, "pwm-dutycycle-unit",
+			     &dutycycle_unit);
+
+	if (dutycycle_range[0] > dutycycle_unit ||
+	    dutycycle_range[1] > dutycycle_unit)
+		return -EINVAL;
+
+	drvdata->continuous.dutycycle_unit = dutycycle_unit;
+	drvdata->continuous.min_uV_dutycycle = dutycycle_range[0];
+	drvdata->continuous.max_uV_dutycycle = dutycycle_range[1];
 
 	return 0;
 }
