@@ -23,6 +23,7 @@
 #define  PWM_DIV_CLK_0		0x00 /* DIVIDECLK = BASECLK */
 #define  PWM_DIV_CLK_100	0x63 /* DIVIDECLK = BASECLK/100 */
 #define  PWM_DIV_CLK_128	0x7F /* DIVIDECLK = BASECLK/128 */
+#define  PWM_DIV_CLK_MASK	GENMASK(6, 0)
 
 #define PWM0_DUTY_CYCLE		0x4E
 #define BACKLIGHT_EN		0x51
@@ -96,10 +97,37 @@ static int crc_pwm_config(struct pwm_chip *c, struct pwm_device *pwm,
 	return 0;
 }
 
+static void crc_pwm_get_state(struct pwm_chip *c,
+			      struct pwm_device *pwm,
+			      struct pwm_state *state)
+{
+	struct crystalcove_pwm *crc_pwm = to_crc_pwm(c);
+	bool enabled = true;
+	unsigned int val;
+	u64 timens;
+
+	regmap_read(crc_pwm->regmap, PWM0_CLK_DIV, &val);
+
+	if (!(val & PWM_OUTPUT_ENABLE))
+		enabled = false;
+
+	timens = (u64)((val & PWM_DIV_CLK_MASK) + 1) * NSEC_PER_SEC;
+	state->period = DIV_ROUND_CLOSEST_ULL(timens, PWM_BASE_CLK);
+
+	regmap_read(crc_pwm->regmap, PWM0_DUTY_CYCLE, &val);
+	timens = val * state->period;
+	state->duty_cycle = DIV_ROUND_CLOSEST_ULL(timens, PWM_MAX_LEVEL);
+
+	regmap_read(crc_pwm->regmap, BACKLIGHT_EN, &val);
+	if (!(val & 1))
+		enabled = false;
+}
+
 static const struct pwm_ops crc_pwm_ops = {
 	.config = crc_pwm_config,
 	.enable = crc_pwm_enable,
 	.disable = crc_pwm_disable,
+	.get_state = crc_pwm_get_state,
 };
 
 static int crystalcove_pwm_probe(struct platform_device *pdev)
