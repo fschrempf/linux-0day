@@ -458,34 +458,6 @@ static inline bool pwm_can_sleep(struct pwm_device *pwm)
 }
 #endif
 
-static inline void pwm_apply_args(struct pwm_device *pwm)
-{
-	/*
-	 * PWM users calling pwm_apply_args() expect to have a fresh config
-	 * where the polarity and period are set according to pwm_args info.
-	 * The problem is, polarity can only be changed when the PWM is
-	 * disabled.
-	 *
-	 * PWM drivers supporting hardware readout may declare the PWM device
-	 * as enabled, and prevent polarity setting, which changes from the
-	 * existing behavior, where all PWM devices are declared as disabled
-	 * at startup (even if they are actually enabled), thus authorizing
-	 * polarity setting.
-	 *
-	 * Instead of setting ->enabled to false, we call pwm_disable()
-	 * before pwm_set_polarity() to ensure that everything is configured
-	 * as expected, and the PWM is really disabled when the user request
-	 * it.
-	 *
-	 * Note that PWM users requiring a smooth handover between the
-	 * bootloader and the kernel (like critical regulators controlled by
-	 * PWM devices) will have to switch to the atomic API and avoid calling
-	 * pwm_apply_args().
-	 */
-	pwm_disable(pwm);
-	pwm_set_polarity(pwm, pwm->args.polarity);
-}
-
 struct pwm_lookup {
 	struct list_head list;
 	const char *provider;
