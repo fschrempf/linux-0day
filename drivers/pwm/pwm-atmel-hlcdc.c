@@ -25,8 +25,10 @@
 #include <linux/pwm.h>
 #include <linux/regmap.h>
 
-#define ATMEL_HLCDC_PWMCVAL_MASK	GENMASK(15, 8)
-#define ATMEL_HLCDC_PWMCVAL(x)		(((x) << 8) & ATMEL_HLCDC_PWMCVAL_MASK)
+#define ATMEL_HLCDC_PWMCVAL_SHIFT	8
+#define ATMEL_HLCDC_PWMCVAL_MASK	GENMASK(15, ATMEL_HLCDC_PWMCVAL_SHIFT)
+#define ATMEL_HLCDC_PWMCVAL(x)		(((x) << ATMEL_HLCDC_PWMCVAL_SHIFT) & \
+					 ATMEL_HLCDC_PWMCVAL_MASK)
 #define ATMEL_HLCDC_PWMPOL		BIT(4)
 #define ATMEL_HLCDC_PWMPS_MASK		GENMASK(2, 0)
 #define ATMEL_HLCDC_PWMPS_MAX		0x6
@@ -200,11 +202,43 @@ static void atmel_hlcdc_pwm_disable(struct pwm_chip *c,
 	}
 }
 
+static void atmel_hlcdc_pwm_get_state(struct pwm_chip *c,
+				      struct pwm_device *pwm,
+				      struct pwm_state *state)
+{
+	struct atmel_hlcdc_pwm *chip = to_atmel_hlcdc_pwm(c);
+	struct atmel_hlcdc *hlcdc = chip->hlcdc;
+	unsigned long clk_freq;
+	u64 duty;
+	u32 val;
+
+	regmap_read(hlcdc->regmap, ATMEL_HLCDC_SR, &val);
+	state->enabled = val & ATMEL_HLCDC_SR;
+
+	regmap_read(hlcdc->regmap, ATMEL_HLCDC_CFG(0), &val);
+	if (val & ATMEL_HLCDC_CLKPWMSEL)
+		clk_freq = clk_get_rate(hlcdc->sys_clk);
+	else
+		clk_freq = clk_get_rate(hlcdc->slow_clk);
+
+	regmap_read(hlcdc->regmap, ATMEL_HLCDC_CFG(6), &val);
+	if (val & ATMEL_HLCDC_PWMPOL)
+		state->polarity = PWM_POLARITY_NORMAL;
+	else
+		state->polarity = PWM_POLARITY_INVERSED;
+
+	state->period = clk_freq >> (val & ATMEL_HLCDC_PWMPS_MASK);
+
+	duty = (val & ATMEL_HLCDC_PWMCVAL_MASK) >> ATMEL_HLCDC_PWMCVAL_SHIFT;
+	state->duty_cycle = DIV_ROUND_CLOSEST_ULL(duty * state->period, 256);
+}
+
 static const struct pwm_ops atmel_hlcdc_pwm_ops = {
 	.config = atmel_hlcdc_pwm_config,
 	.set_polarity = atmel_hlcdc_pwm_set_polarity,
 	.enable = atmel_hlcdc_pwm_enable,
 	.disable = atmel_hlcdc_pwm_disable,
+	.get_state = atmel_hlcdc_pwm_get_state,
 	.owner = THIS_MODULE,
 };
 
