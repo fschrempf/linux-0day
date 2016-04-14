@@ -56,7 +56,7 @@ struct max8997_haptic {
 	unsigned int level;
 
 	struct pwm_device *pwm;
-	unsigned int pwm_period;
+	struct pwm_state pwm_state;
 	enum max8997_haptic_pwm_divisor pwm_divisor;
 
 	enum max8997_haptic_motor_type type;
@@ -67,13 +67,11 @@ struct max8997_haptic {
 	unsigned int pattern_signal_period;
 };
 
-static int max8997_haptic_set_duty_cycle(struct max8997_haptic *chip)
+static void max8997_haptic_set_duty_cycle(struct max8997_haptic *chip)
 {
-	int ret = 0;
-
 	if (chip->mode == MAX8997_EXTERNAL_MODE) {
-		unsigned int duty = chip->pwm_period * chip->level / 100;
-		ret = pwm_config(chip->pwm, duty, chip->pwm_period);
+		pwm_set_relative_duty_cycle(&chip->pwm_state, chip->level,
+					    100);
 	} else {
 		int i;
 		u8 duty_index = 0;
@@ -105,7 +103,6 @@ static int max8997_haptic_set_duty_cycle(struct max8997_haptic *chip)
 			break;
 		}
 	}
-	return ret;
 }
 
 static void max8997_haptic_configure(struct max8997_haptic *chip)
@@ -174,11 +171,8 @@ static void max8997_haptic_enable(struct max8997_haptic *chip)
 
 	mutex_lock(&chip->mutex);
 
-	error = max8997_haptic_set_duty_cycle(chip);
-	if (error) {
-		dev_err(chip->dev, "set_pwm_cycle failed, error: %d\n", error);
-		goto out;
-	}
+	pwm_prepare_new_state(chip->pwm, &chip->pwm_state);
+	max8997_haptic_set_duty_cycle(chip);
 
 	if (!chip->enabled) {
 		error = regulator_enable(chip->regulator);
@@ -188,7 +182,8 @@ static void max8997_haptic_enable(struct max8997_haptic *chip)
 		}
 		max8997_haptic_configure(chip);
 		if (chip->mode == MAX8997_EXTERNAL_MODE) {
-			error = pwm_enable(chip->pwm);
+			chip->pwm_state.enabled = true;
+			error = pwm_apply_state(chip->pwm, &chip->pwm_state);
 			if (error) {
 				dev_err(chip->dev, "Failed to enable PWM\n");
 				regulator_disable(chip->regulator);
@@ -209,8 +204,10 @@ static void max8997_haptic_disable(struct max8997_haptic *chip)
 	if (chip->enabled) {
 		chip->enabled = false;
 		max8997_haptic_configure(chip);
-		if (chip->mode == MAX8997_EXTERNAL_MODE)
-			pwm_disable(chip->pwm);
+		if (chip->mode == MAX8997_EXTERNAL_MODE) {
+			chip->pwm_state.enabled = false;
+			pwm_apply_state(chip->pwm, &chip->pwm_state);
+		}
 		regulator_disable(chip->regulator);
 	}
 
@@ -282,7 +279,6 @@ static int max8997_haptic_probe(struct platform_device *pdev)
 	chip->client = iodev->haptic;
 	chip->dev = &pdev->dev;
 	chip->input_dev = input_dev;
-	chip->pwm_period = haptic_pdata->pwm_period;
 	chip->type = haptic_pdata->type;
 	chip->mode = haptic_pdata->mode;
 	chip->pwm_divisor = haptic_pdata->pwm_divisor;
@@ -307,11 +303,8 @@ static int max8997_haptic_probe(struct platform_device *pdev)
 			goto err_free_mem;
 		}
 
-		/*
-		 * FIXME: pwm_apply_args() should be removed when switching to
-		 * the atomic PWM API.
-		 */
-		pwm_apply_args(chip->pwm);
+		pwm_prepare_new_state(chip->pwm, &chip->pwm_state);
+		chip->pwm_state.period = haptic_pdata->pwm_period;
 		break;
 
 	default:
