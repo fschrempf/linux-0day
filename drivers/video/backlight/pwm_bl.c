@@ -27,7 +27,7 @@
 struct pwm_bl_data {
 	struct pwm_device	*pwm;
 	struct device		*dev;
-	unsigned int		period;
+	struct pwm_state	state;
 	unsigned int		lth_brightness;
 	unsigned int		*levels;
 	bool			enabled;
@@ -43,39 +43,6 @@ struct pwm_bl_data {
 	void			(*exit)(struct device *);
 };
 
-static void pwm_backlight_power_on(struct pwm_bl_data *pb, int brightness)
-{
-	int err;
-
-	if (pb->enabled)
-		return;
-
-	err = regulator_enable(pb->power_supply);
-	if (err < 0)
-		dev_err(pb->dev, "failed to enable power supply\n");
-
-	if (pb->enable_gpio)
-		gpiod_set_value(pb->enable_gpio, 1);
-
-	pwm_enable(pb->pwm);
-	pb->enabled = true;
-}
-
-static void pwm_backlight_power_off(struct pwm_bl_data *pb)
-{
-	if (!pb->enabled)
-		return;
-
-	pwm_config(pb->pwm, 0, pb->period);
-	pwm_disable(pb->pwm);
-
-	if (pb->enable_gpio)
-		gpiod_set_value(pb->enable_gpio, 0);
-
-	regulator_disable(pb->power_supply);
-	pb->enabled = false;
-}
-
 static int compute_duty_cycle(struct pwm_bl_data *pb, int brightness)
 {
 	unsigned int lth = pb->lth_brightness;
@@ -86,14 +53,48 @@ static int compute_duty_cycle(struct pwm_bl_data *pb, int brightness)
 	else
 		duty_cycle = brightness;
 
-	return (duty_cycle * (pb->period - lth) / pb->scale) + lth;
+	return (duty_cycle * (pb->state.period - lth) / pb->scale) + lth;
+}
+
+static void pwm_backlight_power_on(struct pwm_bl_data *pb, int brightness)
+{
+	int err;
+
+	if (!pb->enabled) {
+		err = regulator_enable(pb->power_supply);
+		if (err < 0)
+			dev_err(pb->dev, "failed to enable power supply\n");
+
+		if (pb->enable_gpio)
+			gpiod_set_value(pb->enable_gpio, 1);
+	}
+
+	pb->state.duty_cycle = compute_duty_cycle(pb, brightness);
+	pb->state.enabled = true;
+	pwm_apply_state(pb->pwm, &pb->state);
+	pb->enabled = true;
+}
+
+static void pwm_backlight_power_off(struct pwm_bl_data *pb)
+{
+	if (!pb->enabled)
+		return;
+
+	pb->state.duty_cycle = 0;
+	pb->state.enabled = false;
+	pwm_apply_state(pb->pwm, &pb->state);
+
+	if (pb->enable_gpio)
+		gpiod_set_value(pb->enable_gpio, 0);
+
+	regulator_disable(pb->power_supply);
+	pb->enabled = false;
 }
 
 static int pwm_backlight_update_status(struct backlight_device *bl)
 {
 	struct pwm_bl_data *pb = bl_get_data(bl);
 	int brightness = bl->props.brightness;
-	int duty_cycle;
 
 	if (bl->props.power != FB_BLANK_UNBLANK ||
 	    bl->props.fb_blank != FB_BLANK_UNBLANK ||
@@ -103,11 +104,9 @@ static int pwm_backlight_update_status(struct backlight_device *bl)
 	if (pb->notify)
 		brightness = pb->notify(pb->dev, brightness);
 
-	if (brightness > 0) {
-		duty_cycle = compute_duty_cycle(pb, brightness);
-		pwm_config(pb->pwm, duty_cycle, pb->period);
+	if (brightness > 0)
 		pwm_backlight_power_on(pb, brightness);
-	} else
+	else
 		pwm_backlight_power_off(pb);
 
 	if (pb->notify_after)
@@ -308,23 +307,19 @@ static int pwm_backlight_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "got pwm for backlight\n");
 
 	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to
-	 * the atomic PWM API.
-	 */
-	pwm_apply_args(pb->pwm);
-
-	/*
 	 * The DT case will set the pwm_period_ns field to 0 and store the
 	 * period, parsed from the DT, in the PWM device. For the non-DT case,
 	 * set the period from platform data if it has not already been set
 	 * via the PWM lookup table.
 	 */
 	pwm_get_args(pb->pwm, &pargs);
-	pb->period = pargs.period;
-	if (!pb->period && (data->pwm_period_ns > 0))
-		pb->period = data->pwm_period_ns;
+	pb->state.polarity = pargs.polarity;
+	pb->state.period = pargs.period;
+	if (!pb->state.period && (data->pwm_period_ns > 0))
+		pb->state.period = data->pwm_period_ns;
 
-	pb->lth_brightness = data->lth_brightness * (pb->period / pb->scale);
+	pb->lth_brightness = data->lth_brightness *
+			     (pb->state.period / pb->scale);
 
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_RAW;
