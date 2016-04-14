@@ -24,7 +24,7 @@
 struct pwm_beeper {
 	struct input_dev *input;
 	struct pwm_device *pwm;
-	unsigned long period;
+	struct pwm_state pwm_state;
 };
 
 #define HZ_TO_NANOSECONDS(x) (1000000000UL/(x))
@@ -34,7 +34,6 @@ static int pwm_beeper_event(struct input_dev *input,
 {
 	int ret = 0;
 	struct pwm_beeper *beeper = input_get_drvdata(input);
-	unsigned long period;
 
 	if (type != EV_SND || value < 0)
 		return -EINVAL;
@@ -50,17 +49,17 @@ static int pwm_beeper_event(struct input_dev *input,
 	}
 
 	if (value == 0) {
-		pwm_disable(beeper->pwm);
+		beeper->pwm_state.duty_cycle = 0;
+		beeper->pwm_state.enabled = false;
 	} else {
-		period = HZ_TO_NANOSECONDS(value);
-		ret = pwm_config(beeper->pwm, period / 2, period);
-		if (ret)
-			return ret;
-		ret = pwm_enable(beeper->pwm);
-		if (ret)
-			return ret;
-		beeper->period = period;
+		beeper->pwm_state.enabled = true;
+		beeper->pwm_state.period = HZ_TO_NANOSECONDS(value);
+		beeper->pwm_state.duty_cycle = beeper->pwm_state.period / 2;
 	}
+
+	ret = pwm_apply_state(beeper->pwm, &beeper->pwm_state);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -69,6 +68,7 @@ static int pwm_beeper_probe(struct platform_device *pdev)
 {
 	unsigned long pwm_id = (unsigned long)dev_get_platdata(&pdev->dev);
 	struct pwm_beeper *beeper;
+	struct pwm_args pargs;
 	int error;
 
 	beeper = kzalloc(sizeof(*beeper), GFP_KERNEL);
@@ -87,11 +87,8 @@ static int pwm_beeper_probe(struct platform_device *pdev)
 		goto err_free;
 	}
 
-	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to
-	 * the atomic PWM API.
-	 */
-	pwm_apply_args(beeper->pwm);
+	pwm_get_args(beeper->pwm, &pargs);
+	beeper->pwm_state.polarity = pargs.polarity;
 
 	beeper->input = input_allocate_device();
 	if (!beeper->input) {
@@ -153,8 +150,10 @@ static int __maybe_unused pwm_beeper_suspend(struct device *dev)
 {
 	struct pwm_beeper *beeper = dev_get_drvdata(dev);
 
-	if (beeper->period)
-		pwm_disable(beeper->pwm);
+	if (beeper->pwm_state.enabled) {
+		beeper->pwm_state.enabled = false;
+		pwm_apply_state(beeper->pwm, &beeper->pwm_state);
+	}
 
 	return 0;
 }
@@ -163,9 +162,9 @@ static int __maybe_unused pwm_beeper_resume(struct device *dev)
 {
 	struct pwm_beeper *beeper = dev_get_drvdata(dev);
 
-	if (beeper->period) {
-		pwm_config(beeper->pwm, beeper->period / 2, beeper->period);
-		pwm_enable(beeper->pwm);
+	if (beeper->pwm_state.duty_cycle) {
+		beeper->pwm_state.enabled = true;
+		pwm_apply_state(beeper->pwm, &beeper->pwm_state);
 	}
 
 	return 0;
