@@ -45,6 +45,7 @@ struct lm3630a_chip {
 	struct backlight_device *bledb;
 	struct regmap *regmap;
 	struct pwm_device *pwmd;
+	struct pwm_state pwms;
 };
 
 /* i2c access */
@@ -162,14 +163,12 @@ static int lm3630a_intr_config(struct lm3630a_chip *pchip)
 
 static void lm3630a_pwm_ctrl(struct lm3630a_chip *pchip, int br, int br_max)
 {
-	unsigned int period = pchip->pdata->pwm_period;
-	unsigned int duty = br * period / br_max;
-
-	pwm_config(pchip->pwmd, duty, period);
-	if (duty)
-		pwm_enable(pchip->pwmd);
+	pchip->pwms.duty_cycle = br * pchip->pwms.period / br_max;
+	if (pchip->pwms.duty_cycle)
+		pchip->pwms.enabled = true;
 	else
-		pwm_disable(pchip->pwmd);
+		pchip->pwms.enabled = false;
+	pwm_apply_state(pchip->pwmd, &pchip->pwms);
 }
 
 /* update and get brightness */
@@ -419,17 +418,18 @@ static int lm3630a_probe(struct i2c_client *client,
 	}
 	/* pwm */
 	if (pdata->pwm_ctrl != LM3630A_PWM_DISABLE) {
+		struct pwm_args pargs;
+
 		pchip->pwmd = devm_pwm_get(pchip->dev, "lm3630a-pwm");
 		if (IS_ERR(pchip->pwmd)) {
 			dev_err(&client->dev, "fail : get pwm device\n");
 			return PTR_ERR(pchip->pwmd);
 		}
 
-		/*
-		 * FIXME: pwm_apply_args() should be removed when switching to
-		 * the atomic PWM API.
-		 */
-		pwm_apply_args(pchip->pwmd);
+		pwm_get_args(pchip->pwmd, &pargs);
+
+		pchip->pwms.polarity = pargs.polarity;
+		pchip->pwms.period = pchip->pdata->pwm_period;
 	}
 
 	/* interrupt enable  : irq 0 is not allowed */
