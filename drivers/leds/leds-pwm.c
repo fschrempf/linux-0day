@@ -26,9 +26,8 @@
 struct led_pwm_data {
 	struct led_classdev	cdev;
 	struct pwm_device	*pwm;
+	struct pwm_state	state;
 	unsigned int		active_low;
-	unsigned int		period;
-	int			duty;
 	bool			can_sleep;
 };
 
@@ -39,14 +38,12 @@ struct led_pwm_priv {
 
 static void __led_pwm_set(struct led_pwm_data *led_dat)
 {
-	int new_duty = led_dat->duty;
-
-	pwm_config(led_dat->pwm, new_duty, led_dat->period);
-
-	if (new_duty == 0)
-		pwm_disable(led_dat->pwm);
+	if (led_dat->state.duty_cycle == 0)
+		led_dat->state.enabled = false;
 	else
-		pwm_enable(led_dat->pwm);
+		led_dat->state.enabled = true;
+
+	pwm_apply_state(led_dat->pwm, &led_dat->state);
 }
 
 static void led_pwm_set(struct led_classdev *led_cdev,
@@ -55,15 +52,15 @@ static void led_pwm_set(struct led_classdev *led_cdev,
 	struct led_pwm_data *led_dat =
 		container_of(led_cdev, struct led_pwm_data, cdev);
 	unsigned int max = led_dat->cdev.max_brightness;
-	unsigned long long duty =  led_dat->period;
+	unsigned long long duty =  led_dat->state.period;
 
 	duty *= brightness;
 	do_div(duty, max);
 
 	if (led_dat->active_low)
-		duty = led_dat->period - duty;
+		duty = led_dat->state.period - duty;
 
-	led_dat->duty = duty;
+	led_dat->state.duty_cycle = duty;
 
 	__led_pwm_set(led_dat);
 }
@@ -118,17 +115,11 @@ static int led_pwm_add(struct device *dev, struct led_pwm_priv *priv,
 	else
 		led_data->cdev.brightness_set_blocking = led_pwm_set_blocking;
 
-	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to the
-	 * atomic PWM API.
-	 */
-	pwm_apply_args(led_data->pwm);
-
 	pwm_get_args(led_data->pwm, &pargs);
-
-	led_data->period = pargs.period;
-	if (!led_data->period && (led->pwm_period_ns > 0))
-		led_data->period = led->pwm_period_ns;
+	led_data->state.polarity = pargs.polarity;
+	led_data->state.period = pargs.period;
+	if (!led_data->state.period && (led->pwm_period_ns > 0))
+		led_data->state.period = led->pwm_period_ns;
 
 	ret = led_classdev_register(dev, &led_data->cdev);
 	if (ret == 0) {
