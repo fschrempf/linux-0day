@@ -59,6 +59,7 @@ static int clk_pwm_probe(struct platform_device *pdev)
 	struct clk_init_data init;
 	struct clk_pwm *clk_pwm;
 	struct pwm_device *pwm;
+	struct pwm_state pstate;
 	struct pwm_args pargs;
 	const char *clk_name;
 	struct clk *clk;
@@ -88,12 +89,10 @@ static int clk_pwm_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to the
-	 * atomic PWM API.
-	 */
-	pwm_apply_args(pwm);
-	ret = pwm_config(pwm, (pargs.period + 1) >> 1, pargs.period);
+	pwm_prepare_new_state(pwm, &pstate);
+	pwm_set_relative_duty_cycle(&pstate, 1, 2);
+
+	ret = pwm_apply_state(pwm, &pstate);
 	if (ret < 0)
 		return ret;
 
