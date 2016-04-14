@@ -62,27 +62,17 @@ struct max77693_haptic {
 	bool suspend_state;
 	unsigned int magnitude;
 	unsigned int pwm_duty;
+	struct pwm_state pwm_state;
 	enum max77693_haptic_motor_type type;
 	enum max77693_haptic_pulse_mode mode;
 
 	struct work_struct work;
 };
 
-static int max77693_haptic_set_duty_cycle(struct max77693_haptic *haptic)
+static void max77693_haptic_set_duty_cycle(struct max77693_haptic *haptic)
 {
-	struct pwm_args pargs;
-	int delta;
-	int error;
-
-	pwm_get_args(haptic->pwm_dev, &pargs);
-	delta = (pargs.period + haptic->pwm_duty) / 2;
-	error = pwm_config(haptic->pwm_dev, delta, pargs.period);
-	if (error) {
-		dev_err(haptic->dev, "failed to configure pwm: %d\n", error);
-		return error;
-	}
-
-	return 0;
+	haptic->pwm_state.duty_cycle =
+		(haptic->pwm_state.period + haptic->pwm_duty) / 2;
 }
 
 static int max77843_haptic_bias(struct max77693_haptic *haptic, bool on)
@@ -163,15 +153,20 @@ static void max77693_haptic_enable(struct max77693_haptic *haptic)
 {
 	int error;
 
-	if (haptic->enabled)
-		return;
-
-	error = pwm_enable(haptic->pwm_dev);
+	/*
+	 * We re-apply the PWM config even if the haptic device was
+	 * already enabled in case the duty_cycle has changed.
+	 */
+	haptic->pwm_state.enabled = true;
+	error = pwm_apply_state(haptic->pwm_dev, &haptic->pwm_state);
 	if (error) {
 		dev_err(haptic->dev,
 			"failed to enable haptic pwm device: %d\n", error);
 		return;
 	}
+
+	if (haptic->enabled)
+		return;
 
 	error = max77693_haptic_lowsys(haptic, true);
 	if (error)
@@ -188,7 +183,8 @@ static void max77693_haptic_enable(struct max77693_haptic *haptic)
 err_enable_config:
 	max77693_haptic_lowsys(haptic, false);
 err_enable_lowsys:
-	pwm_disable(haptic->pwm_dev);
+	haptic->pwm_state.enabled = false;
+	pwm_apply_state(haptic->pwm_dev, &haptic->pwm_state);
 }
 
 static void max77693_haptic_disable(struct max77693_haptic *haptic)
@@ -206,7 +202,8 @@ static void max77693_haptic_disable(struct max77693_haptic *haptic)
 	if (error)
 		goto err_disable_lowsys;
 
-	pwm_disable(haptic->pwm_dev);
+	haptic->pwm_state.enabled = false;
+	pwm_apply_state(haptic->pwm_dev, &haptic->pwm_state);
 	haptic->enabled = false;
 
 	return;
@@ -219,13 +216,8 @@ static void max77693_haptic_play_work(struct work_struct *work)
 {
 	struct max77693_haptic *haptic =
 			container_of(work, struct max77693_haptic, work);
-	int error;
 
-	error = max77693_haptic_set_duty_cycle(haptic);
-	if (error) {
-		dev_err(haptic->dev, "failed to set duty cycle: %d\n", error);
-		return;
-	}
+	max77693_haptic_set_duty_cycle(haptic);
 
 	if (haptic->magnitude)
 		max77693_haptic_enable(haptic);
@@ -237,7 +229,6 @@ static int max77693_haptic_play_effect(struct input_dev *dev, void *data,
 				       struct ff_effect *effect)
 {
 	struct max77693_haptic *haptic = input_get_drvdata(dev);
-	struct pwm_args pargs;
 	u64 period_mag_multi;
 
 	haptic->magnitude = effect->u.rumble.strong_magnitude;
@@ -249,8 +240,7 @@ static int max77693_haptic_play_effect(struct input_dev *dev, void *data,
 	 * The formula to convert magnitude to pwm_duty as follows:
 	 * - pwm_duty = (magnitude * pwm_period) / MAX_MAGNITUDE(0xFFFF)
 	 */
-	pwm_get_args(haptic->pwm_dev, &pargs);
-	period_mag_multi = (u64)pargs.period * haptic->magnitude;
+	period_mag_multi = (u64)haptic->pwm_state.period * haptic->magnitude;
 	haptic->pwm_duty = (unsigned int)(period_mag_multi >>
 						MAX_MAGNITUDE_SHIFT);
 
@@ -298,6 +288,7 @@ static int max77693_haptic_probe(struct platform_device *pdev)
 {
 	struct max77693_dev *max77693 = dev_get_drvdata(pdev->dev.parent);
 	struct max77693_haptic *haptic;
+	struct pwm_args pargs;
 	int error;
 
 	haptic = devm_kzalloc(&pdev->dev, sizeof(*haptic), GFP_KERNEL);
@@ -334,11 +325,9 @@ static int max77693_haptic_probe(struct platform_device *pdev)
 		return PTR_ERR(haptic->pwm_dev);
 	}
 
-	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to the
-	 * atomic PWM API.
-	 */
-	pwm_apply_args(haptic->pwm_dev);
+	pwm_get_args(haptic->pwm_dev, &pargs);
+	haptic->pwm_state.polarity = pargs.polarity;
+	haptic->pwm_state.period = pargs.period;
 
 	haptic->motor_reg = devm_regulator_get(&pdev->dev, "haptic");
 	if (IS_ERR(haptic->motor_reg)) {
