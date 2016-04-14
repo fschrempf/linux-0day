@@ -235,9 +235,8 @@ err:
 
 static void lp855x_pwm_ctrl(struct lp855x *lp, int br, int max_br)
 {
-	unsigned int period = lp->pdata->period_ns;
-	unsigned int duty = br * period / max_br;
-	struct pwm_device *pwm;
+	struct pwm_device *pwm = lp->pwm;
+	struct pwm_state pwm_state;
 
 	/* request pwm device with the consumer name */
 	if (!lp->pwm) {
@@ -246,19 +245,19 @@ static void lp855x_pwm_ctrl(struct lp855x *lp, int br, int max_br)
 			return;
 
 		lp->pwm = pwm;
-
-		/*
-		 * FIXME: pwm_apply_args() should be removed when switching to
-		 * the atomic PWM API.
-		 */
-		pwm_apply_args(pwm);
 	}
 
-	pwm_config(lp->pwm, duty, period);
-	if (duty)
-		pwm_enable(lp->pwm);
+	pwm_prepare_new_state(pwm, &pwm_state);
+	pwm_state.period = lp->pdata->period_ns;
+
+	pwm_set_relative_duty_cycle(&pwm_state, br, max_br);
+
+	if (pwm_state.duty_cycle)
+		pwm_state.enabled = true;
 	else
-		pwm_disable(lp->pwm);
+		pwm_state.enabled = false;
+
+	pwm_apply_state(lp->pwm, &pwm_state);
 }
 
 static int lp855x_bl_update_status(struct backlight_device *bl)
