@@ -146,6 +146,35 @@ static inline void pwm_get_args(const struct pwm_device *pwm,
 	*args = pwm->args;
 }
 
+static inline unsigned int
+pwm_get_relative_duty_cycle(const struct pwm_state *state, unsigned int scale)
+{
+	u64 duty;
+
+	if (!state->period)
+		return 0;
+
+	duty = (u64)state->duty_cycle * scale;
+	do_div(duty, state->period);
+
+	return duty;
+}
+
+static inline void
+pwm_set_relative_duty_cycle(struct pwm_state *state, unsigned int val,
+			    unsigned int scale)
+{
+	u64 duty;
+
+	if (!scale)
+		return;
+
+	duty = val < scale ? val : scale;
+	duty *= state->period;
+	do_div(duty, scale);
+	state->duty_cycle = duty;
+}
+
 /**
  * struct pwm_ops - PWM controller operations
  * @request: optional hook for requesting a PWM
