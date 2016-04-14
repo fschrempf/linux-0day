@@ -69,23 +69,24 @@
 
 	ahb {
 		apb {
-			lcd_bus@f0000000 {
+			hlcdc: hlcdc@f0000000 {
 				status = "okay";
 
-				lcd@f0000000 {
-					status = "okay";
-				};
+				hlcdc-display-controller {
+					pinctrl-names = "default";
+					pinctrl-0 = <&pinctrl_lcd_base &pinctrl_lcd_rgb888>;
 
-				lcdovl1@f0000140 {
-					status = "okay";
-				};
+					port@0 {
+						hlcdc_panel_output: endpoint@0 {
+							reg = <0>;
+							remote-endpoint = <&panel_input>;
+						};
 
-				lcdovl2@f0000240 {
-					status = "okay";
-				};
-
-				lcdheo1@f0000340 {
-					status = "okay";
+						hlcdc_sii9022_output: endpoint@1 {
+							reg = <1>;
+							remote-endpoint = <&sii9022_video_input>;
+						};
+					};
 				};
 			};
 
@@ -156,6 +157,31 @@
 					interrupts = <24 0x0>;
 					pinctrl-names = "default";
 					pinctrl-0 = <&pinctrl_mxt_ts>;
+				};
+
+				sii9022: hdmi-encoder@39 {
+					compatible = "sil,sii9022";
+					reg = <0x39>;
+					reset-gpios = <&pioB 15 GPIO_ACTIVE_LOW>;
+					interrupts-extended = <&pioE 3 IRQ_TYPE_LEVEL_LOW>;
+					pinctrl-names = "default";
+					pinctrl-0 = <&pinctrl_sii9022_irq>;
+
+					ports {
+						#address-cells = <1>;
+						#size-cells = <0>;
+
+						port@0 {
+							reg = <0>;
+							#address-cells = <1>;
+							#size-cells = <0>;
+
+							sii9022_video_input: endpoint@0 {
+								reg = <0>;
+								remote-endpoint = <&hlcdc_sii9022_output>;
+							};
+						};
+					};
 				};
 			};
 
@@ -231,6 +257,10 @@
 					pinctrl_mxt_ts: mxt_irq {
 						atmel,pins =
 							<AT91_PIOE 24 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
+					};
+					pinctrl_sii9022_irq: sii9022_irq-0 {
+						atmel,pins =
+							<AT91_PIOE 3 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
 					};
 				};
 			};
@@ -345,5 +375,50 @@
 
 		atmel,ssc-controller = <&ssc0>;
 		atmel,audio-codec = <&wm8904>;
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&hlcdc_pwm 0 50000 0>;
+		brightness-levels = <0 4 8 16 32 64 128 255>;
+		default-brightness-level = <6>;
+		power-supply = <&bl_reg>;
+		status = "okay";
+	};
+
+	bl_reg: backlight_regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "backlight-power-supply";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		status = "okay";
+	};
+
+	panel: panel {
+		compatible = "shelly,sca07010-bfn-lnn", "simple-panel";
+		backlight = <&backlight>;
+		power-supply = <&panel_reg>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			panel_input: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&hlcdc_panel_output>;
+			};
+		};
+	};
+
+	panel_reg: panel_regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "panel-power-supply";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		status = "okay";
 	};
 };
