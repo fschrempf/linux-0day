@@ -124,16 +124,13 @@ static int lp8788_backlight_configure(struct lp8788_bl *bl)
 
 static void lp8788_pwm_ctrl(struct lp8788_bl *bl, int br, int max_br)
 {
-	unsigned int period;
-	unsigned int duty;
 	struct device *dev;
 	struct pwm_device *pwm;
+	struct pwm_state pstate;
 
 	if (!bl->pdata)
 		return;
 
-	period = bl->pdata->period_ns;
-	duty = br * period / max_br;
 	dev = bl->lp->dev;
 
 	/* request PWM device with the consumer name */
@@ -145,19 +142,18 @@ static void lp8788_pwm_ctrl(struct lp8788_bl *bl, int br, int max_br)
 		}
 
 		bl->pwm = pwm;
-
-		/*
-		 * FIXME: pwm_apply_args() should be removed when switching to
-		 * the atomic PWM API.
-		 */
-		pwm_apply_args(pwm);
 	}
 
-	pwm_config(bl->pwm, duty, period);
-	if (duty)
-		pwm_enable(bl->pwm);
+	pwm_prepare_new_state(bl->pwm, &pstate);
+	pstate.period = bl->pdata->period_ns;
+	pwm_set_relative_duty_cycle(&pstate, br, max_br);
+
+	if (pstate.duty_cycle)
+		pstate.enabled = true;
 	else
-		pwm_disable(bl->pwm);
+		pstate.enabled = false;
+
+	pwm_apply_state(bl->pwm, &pstate);
 }
 
 static int lp8788_bl_update_status(struct backlight_device *bl_dev)
