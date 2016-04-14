@@ -72,7 +72,6 @@ struct ssd1307fb_par {
 	u32 prechargep1;
 	u32 prechargep2;
 	struct pwm_device *pwm;
-	u32 pwm_period;
 	int reset;
 	u32 seg_remap;
 	u32 vcomh;
@@ -289,27 +288,25 @@ static int ssd1307fb_init(struct ssd1307fb_par *par)
 	struct pwm_args pargs;
 
 	if (par->device_info->need_pwm) {
+		struct pwm_state pstate = { };
+
 		par->pwm = pwm_get(&par->client->dev, NULL);
 		if (IS_ERR(par->pwm)) {
 			dev_err(&par->client->dev, "Could not get PWM from device tree!\n");
 			return PTR_ERR(par->pwm);
 		}
 
-		/*
-		 * FIXME: pwm_apply_args() should be removed when switching to
-		 * the atomic PWM API.
-		 */
-		pwm_apply_args(par->pwm);
-
 		pwm_get_args(par->pwm, &pargs);
 
-		par->pwm_period = pargs.period;
 		/* Enable the PWM */
-		pwm_config(par->pwm, par->pwm_period / 2, par->pwm_period);
-		pwm_enable(par->pwm);
+		pstate.polarity = pargs.polarity;
+		pstate.period = pargs.period;
+		pstate.duty_cycle = pstate.period / 2;
+		pstate.enabled = true;
+		pwm_apply_state(par->pwm, &pstate);
 
 		dev_dbg(&par->client->dev, "Using PWM%d with a %dns period.\n",
-			par->pwm->pwm, par->pwm_period);
+			par->pwm->pwm, pstate.period);
 	};
 
 	/* Set initial contrast */
