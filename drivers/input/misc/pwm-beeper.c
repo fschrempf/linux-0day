@@ -26,20 +26,19 @@ struct pwm_beeper {
 	struct input_dev *input;
 	struct pwm_device *pwm;
 	struct work_struct work;
-	unsigned long period;
+	struct pwm_state pwm_state;
 };
 
 #define HZ_TO_NANOSECONDS(x) (1000000000UL/(x))
 
 static void __pwm_beeper_set(struct pwm_beeper *beeper)
 {
-	unsigned long period = beeper->period;
+	if (beeper->pwm_state.duty_cycle)
+		beeper->pwm_state.enabled = true;
+	else
+		beeper->pwm_state.enabled = false;
 
-	if (period) {
-		pwm_config(beeper->pwm, period / 2, period);
-		pwm_enable(beeper->pwm);
-	} else
-		pwm_disable(beeper->pwm);
+	pwm_apply_state(beeper->pwm, &beeper->pwm_state);
 }
 
 static void pwm_beeper_work(struct work_struct *work)
@@ -68,10 +67,14 @@ static int pwm_beeper_event(struct input_dev *input,
 		return -EINVAL;
 	}
 
-	if (value == 0)
-		beeper->period = 0;
-	else
-		beeper->period = HZ_TO_NANOSECONDS(value);
+	if (value == 0) {
+		beeper->pwm_state.duty_cycle = 0;
+		beeper->pwm_state.enabled = false;
+	} else {
+		beeper->pwm_state.enabled = true;
+		beeper->pwm_state.period = HZ_TO_NANOSECONDS(value);
+		beeper->pwm_state.duty_cycle = beeper->pwm_state.period / 2;
+	}
 
 	schedule_work(&beeper->work);
 
@@ -82,8 +85,10 @@ static void pwm_beeper_stop(struct pwm_beeper *beeper)
 {
 	cancel_work_sync(&beeper->work);
 
-	if (beeper->period)
-		pwm_disable(beeper->pwm);
+	if (beeper->pwm_state.enabled) {
+		beeper->pwm_state.enabled = false;
+		pwm_apply_state(beeper->pwm, &beeper->pwm_state);
+	}
 }
 
 static void pwm_beeper_close(struct input_dev *input)
@@ -115,11 +120,7 @@ static int pwm_beeper_probe(struct platform_device *pdev)
 		goto err_free;
 	}
 
-	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to
-	 * the atomic PWM API.
-	 */
-	pwm_apply_args(beeper->pwm);
+	pwm_prepare_new_state(beeper->pwm, &beeper->pwm_state);
 
 	INIT_WORK(&beeper->work, pwm_beeper_work);
 
@@ -192,7 +193,7 @@ static int __maybe_unused pwm_beeper_resume(struct device *dev)
 {
 	struct pwm_beeper *beeper = dev_get_drvdata(dev);
 
-	if (beeper->period)
+	if (beeper->pwm_state.duty_cycle)
 		__pwm_beeper_set(beeper);
 
 	return 0;
