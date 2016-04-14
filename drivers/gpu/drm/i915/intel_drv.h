@@ -28,6 +28,7 @@
 #include <linux/async.h>
 #include <linux/i2c.h>
 #include <linux/hdmi.h>
+#include <linux/pwm.h>
 #include <drm/i915_drm.h>
 #include "i915_drv.h"
 #include <drm/drm_crtc.h>
@@ -180,6 +181,7 @@ struct intel_panel {
 		bool util_pin_active_low;	/* bxt+ */
 		u8 controller;		/* bxt+ only */
 		struct pwm_device *pwm;
+		struct pwm_state pwm_state;
 
 		struct backlight_device *device;
 
