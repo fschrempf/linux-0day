@@ -32,7 +32,6 @@
 
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
-#include <linux/pwm.h>
 #include "intel_drv.h"
 
 #define CRC_PMIC_PWM_PERIOD_NS	21333
@@ -538,10 +537,8 @@ static u32 bxt_get_backlight(struct intel_connector *connector)
 static u32 pwm_get_backlight(struct intel_connector *connector)
 {
 	struct intel_panel *panel = &connector->panel;
-	int duty_ns;
 
-	duty_ns = pwm_get_duty_cycle(panel->backlight.pwm);
-	return DIV_ROUND_UP(duty_ns * 100, CRC_PMIC_PWM_PERIOD_NS);
+	pwm_get_relative_duty_cycle(&panel->backlight.pwm_state, 100);
 }
 
 static u32 intel_panel_get_backlight(struct intel_connector *connector)
@@ -630,9 +627,10 @@ static void bxt_set_backlight(struct intel_connector *connector, u32 level)
 static void pwm_set_backlight(struct intel_connector *connector, u32 level)
 {
 	struct intel_panel *panel = &connector->panel;
-	int duty_ns = DIV_ROUND_UP(level * CRC_PMIC_PWM_PERIOD_NS, 100);
+	struct pwm_state *pstate = &panel->backlight.pwm_state;
 
-	pwm_config(panel->backlight.pwm, duty_ns, CRC_PMIC_PWM_PERIOD_NS);
+	pwm_set_relative_duty_cycle(pstate, level, 100);
+	pwm_apply_state(panel->backlight.pwm, pstate);
 }
 
 static void
@@ -801,11 +799,14 @@ static void bxt_disable_backlight(struct intel_connector *connector)
 static void pwm_disable_backlight(struct intel_connector *connector)
 {
 	struct intel_panel *panel = &connector->panel;
+	struct pwm_state *pstate = &panel->backlight.pwm_state;
 
 	/* Disable the backlight */
-	pwm_config(panel->backlight.pwm, 0, CRC_PMIC_PWM_PERIOD_NS);
+	pstate->duty_cycle = 0;
+	pwm_apply_state(panel->backlight.pwm, pstate);
 	usleep_range(2000, 3000);
-	pwm_disable(panel->backlight.pwm);
+	pstate->enabled = false;
+	pwm_apply_state(panel->backlight.pwm, pstate);
 }
 
 void intel_panel_disable_backlight(struct intel_connector *connector)
@@ -1068,8 +1069,9 @@ static void bxt_enable_backlight(struct intel_connector *connector)
 static void pwm_enable_backlight(struct intel_connector *connector)
 {
 	struct intel_panel *panel = &connector->panel;
+	struct pwm_state *pstate = &panel->backlight.pwm_state;
 
-	pwm_enable(panel->backlight.pwm);
+	pstate->enabled = true;
 	intel_panel_actually_set_backlight(connector, panel->backlight.level);
 }
 
@@ -1629,6 +1631,7 @@ static int pwm_setup_backlight(struct intel_connector *connector,
 	struct drm_device *dev = connector->base.dev;
 	struct intel_panel *panel = &connector->panel;
 	int retval;
+	u64 level;
 
 	/* Get the PWM chip for backlight control */
 	panel->backlight.pwm = pwm_get(dev->dev, "pwm_backlight");
@@ -1638,27 +1641,21 @@ static int pwm_setup_backlight(struct intel_connector *connector,
 		return -ENODEV;
 	}
 
-	/*
-	 * FIXME: pwm_apply_args() should be removed when switching to
-	 * the atomic PWM API.
-	 */
-	pwm_apply_args(panel->backlight.pwm);
-
-	retval = pwm_config(panel->backlight.pwm, CRC_PMIC_PWM_PERIOD_NS,
-			    CRC_PMIC_PWM_PERIOD_NS);
+	retval = pwm_adjust_config(panel->backlight.pwm);
 	if (retval < 0) {
-		DRM_ERROR("Failed to configure the pwm chip\n");
+		DRM_ERROR("Failed to adjust PWM config\n");
 		pwm_put(panel->backlight.pwm);
 		panel->backlight.pwm = NULL;
 		return retval;
 	}
 
+	pwm_get_state(panel->backlight.pwm, &panel->backlight.pwm_state);
+
 	panel->backlight.min = 0; /* 0% */
 	panel->backlight.max = 100; /* 100% */
-	panel->backlight.level = DIV_ROUND_UP(
-				 pwm_get_duty_cycle(panel->backlight.pwm) * 100,
-				 CRC_PMIC_PWM_PERIOD_NS);
-	panel->backlight.enabled = panel->backlight.level != 0;
+	panel->backlight.level =
+		pwm_get_relative_duty_cycle(&panel->backlight.pwm_state);
+	panel->backlight.enabled = panel->backlight.pwm_state.enabled;
 
 	return 0;
 }
