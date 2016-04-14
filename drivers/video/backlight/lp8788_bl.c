@@ -50,6 +50,7 @@ struct lp8788_bl {
 	struct lp8788_backlight_platform_data *pdata;
 	enum lp8788_bl_ctrl_mode mode;
 	struct pwm_device *pwm;
+	struct pwm_state pstate;
 };
 
 static struct lp8788_bl_config default_bl_config = {
@@ -124,20 +125,18 @@ static int lp8788_backlight_configure(struct lp8788_bl *bl)
 
 static void lp8788_pwm_ctrl(struct lp8788_bl *bl, int br, int max_br)
 {
-	unsigned int period;
-	unsigned int duty;
 	struct device *dev;
 	struct pwm_device *pwm;
 
 	if (!bl->pdata)
 		return;
 
-	period = bl->pdata->period_ns;
-	duty = br * period / max_br;
 	dev = bl->lp->dev;
 
 	/* request PWM device with the consumer name */
 	if (!bl->pwm) {
+		struct pwm_args pargs;
+
 		pwm = devm_pwm_get(dev, LP8788_DEV_BACKLIGHT);
 		if (IS_ERR(pwm)) {
 			dev_err(dev, "can not get PWM device\n");
@@ -146,18 +145,18 @@ static void lp8788_pwm_ctrl(struct lp8788_bl *bl, int br, int max_br)
 
 		bl->pwm = pwm;
 
-		/*
-		 * FIXME: pwm_apply_args() should be removed when switching to
-		 * the atomic PWM API.
-		 */
-		pwm_apply_args(pwm);
+		pwm_get_args(pwm, &pargs);
+		bl->pstate.polarity = pargs.polarity;
+		bl->pstate.period = bl->pdata->period_ns;
 	}
 
-	pwm_config(bl->pwm, duty, period);
-	if (duty)
-		pwm_enable(bl->pwm);
+	bl->pstate.duty_cycle = br * bl->pstate.period / max_br;
+	if (bl->pstate.duty_cycle)
+		bl->pstate.enabled = true;
 	else
-		pwm_disable(bl->pwm);
+		bl->pstate.enabled = false;
+
+	pwm_apply_state(bl->pwm, &bl->pstate);
 }
 
 static int lp8788_bl_update_status(struct backlight_device *bl_dev)
