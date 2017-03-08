@@ -78,6 +78,18 @@ struct nand_device {
 };
 
 /**
+ * struct nand_page_iter - NAND page iterator
+ * @offs: the absolute offset
+ * @page: the page
+ * @pageoffset: the offset within a page
+ */
+struct nand_page_iter {
+	loff_t offs;
+	int page;
+	int pageoffs;
+};
+
+/**
  * mtd_to_nand - Get the NAND device attached to the MTD instance
  * @mtd: MTD instance
  *
@@ -174,6 +186,40 @@ static inline int nand_per_page_oobsize(struct nand_device *nand)
 {
 	return nand->memorg.oobsize;
 }
+
+/**
+ * nand_page_iter_init - Initialize a NAND page iterator
+ * @nand: NAND device
+ * @offs: absolute offset
+ * @iter: page iterator
+ */
+static inline void nand_page_iter_init(struct nand_device *nand, loff_t offs,
+				       struct nand_page_iter *iter)
+{
+	u64 page = offs;
+
+	iter->pageoffs = do_div(page, nand->memorg.pagesize);
+	iter->page = page;
+	iter->offs = offs;
+}
+
+/**
+ * nand_page_iter_next - Move to the next page
+ * @nand: NAND device
+ * @iter: page iterator
+ */
+static inline void nand_page_iter_next(struct nand_device *nand,
+				       struct nand_page_iter *iter)
+{
+	iter->page++;
+	iter->offs += nand_page_size(nand) - iter->pageoffs;
+	iter->pageoffs = 0;
+}
+
+#define nand_for_each_page(nand, start, len, iter)		\
+	for (nand_page_iter_init(nand, start, iter);		\
+	     (iter)->offs < (start) + (len);			\
+	     nand_page_iter_next(nand, iter))
 
 /**
  * nand_per_page_oobsize - Get NAND erase block size
