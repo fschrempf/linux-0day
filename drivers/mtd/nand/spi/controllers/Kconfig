@@ -1,0 +1,5 @@
+config SPINAND_CONTROLLER_GENERIC
+	tristate "Generic SPI NAND controller"
+	depends on MTD_SPI_NAND && SPI
+	help
+	  This is to support SPI NAND device with generic SPI controller.
