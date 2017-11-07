@@ -271,7 +271,6 @@ static int micron_nand_init(struct nand_chip *chip)
 			return -EINVAL;
 		}
 
-		chip->ecc.options = NAND_ECC_CUSTOM_PAGE_ACCESS;
 		chip->ecc.bytes = 8;
 		chip->ecc.size = 512;
 		chip->ecc.strength = 4;
