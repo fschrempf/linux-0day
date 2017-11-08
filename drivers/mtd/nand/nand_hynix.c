@@ -83,6 +83,17 @@ static int hynix_nand_cmd_op(struct nand_chip *chip, u8 cmd)
 	return 0;
 }
 
+static int hynix_nand_reg_write_op(struct nand_chip *chip, u8 addr, u8 val)
+{
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	u16 column = ((u16)addr << 8) | addr;
+
+	chip->cmdfunc(mtd, NAND_CMD_NONE, column, -1);
+	chip->write_byte(mtd, val);
+
+	return 0;
+}
+
 static int hynix_nand_setup_read_retry(struct mtd_info *mtd, int retry_mode)
 {
 	struct nand_chip *chip = mtd_to_nand(mtd);
@@ -105,13 +116,9 @@ static int hynix_nand_setup_read_retry(struct mtd_info *mtd, int retry_mode)
 	 * predefined or extracted from an OTP area on the NAND (values are
 	 * probably tweaked at production in this case).
 	 */
-	for (i = 0; i < hynix->read_retry->nregs; i++) {
-		int column = hynix->read_retry->regs[i];
-
-		column |= column << 8;
-		chip->cmdfunc(mtd, NAND_CMD_NONE, column, -1);
-		chip->write_byte(mtd, values[i]);
-	}
+	for (i = 0; i < hynix->read_retry->nregs; i++)
+		hynix_nand_reg_write_op(chip, hynix->read_retry->regs[i],
+					values[i]);
 
 	/* Apply the new settings. */
 	hynix_nand_cmd_op(chip, NAND_HYNIX_CMD_APPLY_PARAMS);
@@ -172,37 +179,31 @@ static int hynix_read_rr_otp(struct nand_chip *chip,
 			     const struct hynix_read_retry_otp *info,
 			     void *buf)
 {
-	struct mtd_info *mtd = nand_to_mtd(chip);
 	int i;
 
 	nand_reset_op(chip);
 
 	hynix_nand_cmd_op(chip, NAND_HYNIX_CMD_SET_PARAMS);
 
-	for (i = 0; i < info->nregs; i++) {
-		int column = info->regs[i];
-
-		column |= column << 8;
-		chip->cmdfunc(mtd, NAND_CMD_NONE, column, -1);
-		chip->write_byte(mtd, info->values[i]);
-	}
+	for (i = 0; i < info->nregs; i++)
+		hynix_nand_reg_write_op(chip, info->regs[i], info->values[i]);
 
 	hynix_nand_cmd_op(chip, NAND_HYNIX_CMD_APPLY_PARAMS);
 
 	/* Sequence to enter OTP mode? */
-	chip->cmdfunc(mtd, 0x17, -1, -1);
-	chip->cmdfunc(mtd, 0x04, -1, -1);
-	chip->cmdfunc(mtd, 0x19, -1, -1);
+	hynix_nand_cmd_op(chip, 0x17);
+	hynix_nand_cmd_op(chip, 0x4);
+	hynix_nand_cmd_op(chip, 0x19);
 
 	/* Now read the page */
 	nand_read_page_op(chip, info->page, 0, buf, info->size);
 
 	/* Put everything back to normal */
 	nand_reset_op(chip);
-	chip->cmdfunc(mtd, NAND_HYNIX_CMD_SET_PARAMS, 0x38, -1);
-	chip->write_byte(mtd, 0x0);
-	chip->cmdfunc(mtd, NAND_HYNIX_CMD_APPLY_PARAMS, -1, -1);
-	chip->cmdfunc(mtd, NAND_CMD_READ0, 0x0, -1);
+	hynix_nand_cmd_op(chip, NAND_HYNIX_CMD_SET_PARAMS);
+	hynix_nand_reg_write_op(chip, 0x38, 0);
+	hynix_nand_cmd_op(chip, NAND_HYNIX_CMD_APPLY_PARAMS);
+	nand_read_page_op(chip, 0, 0, NULL, 0);
 
 	return 0;
 }
