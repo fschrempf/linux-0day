@@ -326,7 +326,8 @@ config MTD_NAND_PXA3xx
 config MTD_NAND_MARVELL
 	tristate "NAND controller support on Marvell boards"
 	depends on PXA3xx || ARCH_MMP || PLAT_ORION || ARCH_MVEBU || \
-		   (COMPILE_TEST && HAS_IOMEM)
+		   COMPILE_TEST
+	depends on HAS_IOMEM
 	help
 	  This enables the NAND flash controller driver for Marvell boards,
 	  including:

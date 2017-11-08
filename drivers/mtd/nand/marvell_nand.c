@@ -2426,7 +2426,7 @@ static const struct of_device_id marvell_nfc_of_ids[] = {
 	},
 	{ /* sentinel */ },
 };
-MODULE_DEVICE_TABLE(of, marvell_nand_match);
+MODULE_DEVICE_TABLE(of, marvell_nfc_of_ids);
 
 static struct platform_driver marvell_nfc_driver = {
 	.driver	= {
