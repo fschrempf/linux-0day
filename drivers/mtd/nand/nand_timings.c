@@ -293,7 +293,7 @@ int onfi_fill_data_interface(struct nand_chip *chip,
 {
 	struct nand_data_interface *iface = &chip->data_interface;
 
-	if (iface->type != NAND_SDR_IFACE)
+	if (type != NAND_SDR_IFACE)
 		return -EINVAL;
 
 	if (timing_mode < 0 || timing_mode >= ARRAY_SIZE(onfi_sdr_timings))
