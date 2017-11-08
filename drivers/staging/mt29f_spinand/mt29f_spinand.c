@@ -636,12 +636,8 @@ static int spinand_write_page_hwecc(struct mtd_info *mtd,
 	int eccsize = chip->ecc.size;
 	int eccsteps = chip->ecc.steps;
 
-	nand_prog_page_begin_op(chip, page, 0, NULL, 0);
-
 	enable_hw_ecc = 1;
-	chip->write_buf(mtd, p, eccsize * eccsteps);
-
-	return nand_prog_page_end_op(chip);
+	return nand_prog_page_op(chip, page, 0, p, eccsize * eccsteps);
 }
 
 static int spinand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
