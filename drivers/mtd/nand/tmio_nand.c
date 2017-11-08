@@ -213,7 +213,7 @@ tmio_nand_wait(struct mtd_info *mtd, struct nand_chip *nand_chip)
 		dev_warn(&tmio->dev->dev, "timeout waiting for interrupt\n");
 	}
 
-	nand_status_op(chip, &status)
+	nand_status_op(nand_chip, &status);
 	return status;
 }
 
