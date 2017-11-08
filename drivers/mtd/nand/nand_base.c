@@ -1251,15 +1251,25 @@ int nand_fill_column_cycles(struct nand_chip *chip, u8 *addrs,
 {
 	struct mtd_info *mtd = nand_to_mtd(chip);
 
+	/* Make sure the offset is less than the actual page size. */
+	if (offset_in_page > mtd->writesize + mtd->oobsize)
+		return -EINVAL;
+
+	/*
+	 * On small page NANDs, there's a dedicated command to access the OOB
+	 * area, and the column address is relative to the start of the OOB
+	 * area, not the start of the page. Asjust the address accordingly.
+	 */
+	if (mtd->writesize <= 512 && offset_in_page >= mtd->writesize)
+		offset_in_page -= mtd->writesize;
+
 	/*
 	 * The offset in page is expressed in bytes, if the NAND bus is 16-bit
 	 * wide, then it must be divided by 2.
 	 */
 	if (chip->options & NAND_BUSWIDTH_16) {
-		if (offset_in_page % 2) {
-			WARN_ON(true);
+		if (WARN_ON(offset_in_page % 2))
 			return -EINVAL;
-		}
 
 		offset_in_page /= 2;
 	}
@@ -1300,7 +1310,8 @@ static int nand_sp_exec_read_page_op(struct nand_chip *chip, unsigned int page,
 
 	if (offset_in_page >= mtd->writesize)
 		instrs[0].cmd.opcode = NAND_CMD_READOOB;
-	else if (offset_in_page >= 256)
+	else if (offset_in_page >= 256 &&
+		 !(chip->options & NAND_BUSWIDTH_16))
 		instrs[0].cmd.opcode = NAND_CMD_READ1;
 
 	ret = nand_fill_column_cycles(chip, addrs, offset_in_page);
@@ -1381,8 +1392,9 @@ int nand_read_page_op(struct nand_chip *chip, unsigned int page,
 
 	if (chip->exec_op) {
 		if (mtd->writesize > 512)
-			return nand_lp_exec_read_page_op(
-				chip, page, offset_in_page, buf, len);
+			return nand_lp_exec_read_page_op(chip, page,
+							 offset_in_page, buf,
+							 len);
 
 		return nand_sp_exec_read_page_op(chip, page, offset_in_page,
 						 buf, len);
@@ -1428,8 +1440,7 @@ static int nand_read_param_page_op(struct nand_chip *chip, u8 page, void *buf,
 					 PSEC_TO_NSEC(sdr->tRR_min)),
 			NAND_OP_8BIT_DATA_IN(len, buf, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		/* Drop the DATA_IN instruction if len is set to 0. */
 		if (!len)
@@ -1485,11 +1496,12 @@ int nand_change_read_column_op(struct nand_chip *chip,
 				    PSEC_TO_NSEC(sdr->tCCS_min)),
 			NAND_OP_DATA_IN(len, buf, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
+		int ret;
 
-		if (nand_fill_column_cycles(chip, addrs, offset_in_page) < 0)
-			return -EINVAL;
+		ret = nand_fill_column_cycles(chip, addrs, offset_in_page);
+		if (ret < 0)
+			return ret;
 
 		/* Drop the DATA_IN instruction if len is set to 0. */
 		if (!len)
@@ -1529,21 +1541,14 @@ int nand_read_oob_op(struct nand_chip *chip, unsigned int page,
 	if (len && !buf)
 		return -EINVAL;
 
-	if (offset_in_page + len > mtd->oobsize)
+	if (ooboffs + len > mtd->oobsize)
 		return -EINVAL;
 
-	if (chip->exec_op) {
-		offset_in_page += mtd->writesize;
+	if (chip->exec_op)
+		return nand_read_page_op(chip, page, ooboffs + mtd->writesize,
+					 buf, len);
 
-		if (mtd->writesize > 512)
-			return nand_lp_exec_read_page_op(
-				chip, page, offset_in_page, buf, len);
-
-		return nand_sp_exec_read_page_op(chip, page, offset_in_page,
-						 buf, len);
-	}
-
-	chip->cmdfunc(mtd, NAND_CMD_READOOB, offset_in_page, page);
+	chip->cmdfunc(mtd, NAND_CMD_READOOB, ooboffs, page);
 	if (len)
 		chip->read_buf(mtd, buf, len);
 
@@ -1561,8 +1566,9 @@ static int nand_exec_prog_page_op(struct nand_chip *chip, unsigned int page,
 	u8 addrs[5] = {};
 	struct nand_op_instr instrs[] = {
 		/*
-		 * Pointer command will be adjusted if we're dealing
-		 * with a small page NAND.
+		 * The first instruction will be dropped if we're dealing
+		 * with a large page NAND and adjusted if we're dealing
+		 * with a small page NAND and the page offset is > 255.
 		 */
 		NAND_OP_CMD(NAND_CMD_READ0, 0),
 		NAND_OP_CMD(NAND_CMD_SEQIN, 0),
@@ -1587,19 +1593,27 @@ static int nand_exec_prog_page_op(struct nand_chip *chip, unsigned int page,
 	/* Drop the lasts instructions if we're not programming the page. */
 	if (!prog) {
 		op.ninstrs -= 2;
-		/* Also drop the DATA_OUT instruction if empty */
+		/* Also drop the DATA_OUT instruction if empty. */
 		if (!len)
 			op.ninstrs--;
 	}
 
 	if (mtd->writesize <= 512) {
-		/* Small pages need some more tweaking */
+		/*
+		 * Small pages need some more tweaking: we have to adjust the
+		 * first instruction depending on the page offset we're trying
+		 * to access.
+		 */
 		if (offset_in_page >= mtd->writesize)
 			instrs[0].cmd.opcode = NAND_CMD_READOOB;
-		else if (offset_in_page >= 256)
+		else if (offset_in_page >= 256 &&
+			 !(chip->options & NAND_BUSWIDTH_16))
 			instrs[0].cmd.opcode = NAND_CMD_READ1;
 	} else {
-		/* Drop the first command if dealing with large pages */
+		/*
+		 * Drop the first command if we're dealing with a large page
+		 * NAND.
+		 */
 		op.instrs++;
 		op.ninstrs--;
 	}
@@ -1667,8 +1681,7 @@ int nand_prog_page_end_op(struct nand_chip *chip)
 				    PSEC_TO_NSEC(sdr->tWB_max)),
 			NAND_OP_WAIT_RDY(PSEC_TO_MSEC(sdr->tPROG_max), 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		return nand_exec_op(chip, &op);
 	}
@@ -1710,8 +1723,8 @@ int nand_prog_page_op(struct nand_chip *chip, unsigned int page,
 		return -EINVAL;
 
 	if (chip->exec_op)
-		return nand_exec_prog_page_op(
-			chip, page, offset_in_page, buf, len, true);
+		return nand_exec_prog_page_op(chip, page, offset_in_page, buf,
+					      len, true);
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, offset_in_page, page);
 	chip->write_buf(mtd, buf, len);
@@ -1764,11 +1777,12 @@ int nand_change_write_column_op(struct nand_chip *chip,
 			NAND_OP_ADDR(2, addrs, PSEC_TO_NSEC(sdr->tCCS_min)),
 			NAND_OP_DATA_OUT(len, buf, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
+		int ret;
 
-		if (nand_fill_column_cycles(chip, addrs, offset_in_page) < 0)
-			return -EINVAL;
+		ret = nand_fill_column_cycles(chip, addrs, offset_in_page);
+		if (ret < 0)
+			return ret;
 
 		instrs[2].data.force_8bit = force_8bit;
 
@@ -1800,8 +1814,8 @@ EXPORT_SYMBOL_GPL(nand_change_write_column_op);
  *
  * Returns 0 for success or negative error code otherwise
  */
-int nand_readid_op(struct nand_chip *chip, u8 addr,
-		   void *buf, unsigned int len)
+int nand_readid_op(struct nand_chip *chip, u8 addr, void *buf,
+		   unsigned int len)
 {
 	struct mtd_info *mtd = nand_to_mtd(chip);
 	unsigned int i;
@@ -1818,8 +1832,7 @@ int nand_readid_op(struct nand_chip *chip, u8 addr,
 			NAND_OP_ADDR(1, &addr, PSEC_TO_NSEC(sdr->tADL_min)),
 			NAND_OP_8BIT_DATA_IN(len, buf, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		/* Drop the DATA_IN instruction if len is set to 0. */
 		if (!len)
@@ -1860,8 +1873,7 @@ int nand_status_op(struct nand_chip *chip, u8 *status)
 				    PSEC_TO_NSEC(sdr->tADL_min)),
 			NAND_OP_8BIT_DATA_IN(1, status, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		if (!status)
 			op.ninstrs--;
@@ -1906,8 +1918,7 @@ int nand_erase_op(struct nand_chip *chip, unsigned int eraseblock)
 				    PSEC_TO_MSEC(sdr->tWB_max)),
 			NAND_OP_WAIT_RDY(PSEC_TO_MSEC(sdr->tBERS_max), 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		if (chip->options & NAND_ROW_ADDR_3)
 			instrs[1].addr.naddrs++;
@@ -1958,8 +1969,7 @@ static int nand_set_features_op(struct nand_chip *chip, u8 feature,
 					      PSEC_TO_NSEC(sdr->tWB_max)),
 			NAND_OP_WAIT_RDY(PSEC_TO_MSEC(sdr->tFEAT_max), 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		return nand_exec_op(chip, &op);
 	}
@@ -2005,8 +2015,7 @@ static int nand_get_features_op(struct nand_chip *chip, u8 feature,
 			NAND_OP_8BIT_DATA_IN(ONFI_SUBFEATURE_PARAM_LEN,
 					     data, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		return nand_exec_op(chip, &op);
 	}
@@ -2039,8 +2048,7 @@ int nand_reset_op(struct nand_chip *chip)
 			NAND_OP_CMD(NAND_CMD_RESET, PSEC_TO_NSEC(sdr->tWB_max)),
 			NAND_OP_WAIT_RDY(PSEC_TO_MSEC(sdr->tRST_max), 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		return nand_exec_op(chip, &op);
 	}
@@ -2076,8 +2084,7 @@ int nand_read_data_op(struct nand_chip *chip, void *buf, unsigned int len,
 		struct nand_op_instr instrs[] = {
 			NAND_OP_DATA_IN(len, buf, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		instrs[0].data.force_8bit = force_8bit;
 
@@ -2123,8 +2130,7 @@ int nand_write_data_op(struct nand_chip *chip, const void *buf,
 		struct nand_op_instr instrs[] = {
 			NAND_OP_DATA_OUT(len, buf, 0),
 		};
-		struct nand_operation op =
-			NAND_OPERATION(instrs);
+		struct nand_operation op = NAND_OPERATION(instrs);
 
 		instrs[0].data.force_8bit = force_8bit;
 
