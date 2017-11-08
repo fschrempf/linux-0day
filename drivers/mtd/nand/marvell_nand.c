@@ -1339,14 +1339,15 @@ static void marvell_nfc_parse_instructions(const struct nand_subop *subop,
 
 		switch (instr->type) {
 		case NAND_OP_CMD_INSTR:
-			pr_debug("  ->CMD      [0x%02x]\n", instr->cmd.opcode);
+			pr_debug("  ->CMD      [0x%02x]\n",
+				 instr->ctx.cmd.opcode);
 
 			if (first_cmd)
 				nfc_op->ndcb[0] |=
-					NDCB0_CMD1(instr->cmd.opcode);
+					NDCB0_CMD1(instr->ctx.cmd.opcode);
 			else
 				nfc_op->ndcb[0] |=
-					NDCB0_CMD2(instr->cmd.opcode) |
+					NDCB0_CMD2(instr->ctx.cmd.opcode) |
 					NDCB0_DBC;
 
 			nfc_op->cle_ale_delay_ns = instr->delay_ns;
@@ -1356,7 +1357,7 @@ static void marvell_nfc_parse_instructions(const struct nand_subop *subop,
 		case NAND_OP_ADDR_INSTR:
 			offset = nand_subop_get_addr_start_off(subop, op_id);
 			naddrs = nand_subop_get_num_addr_cyc(subop, op_id);
-			addrs = &instr->addr.addrs[offset];
+			addrs = &instr->ctx.addr.addrs[offset];
 
 			pr_debug("  ->ADDR     [%d cyc]", naddrs);
 
@@ -1377,7 +1378,8 @@ static void marvell_nfc_parse_instructions(const struct nand_subop *subop,
 
 		case NAND_OP_DATA_IN_INSTR:
 			pr_debug("  ->DATA_IN  [%d B%s]\n", len,
-				 instr->data.force_8bit ? ", force 8-bit" : "");
+				 instr->ctx.data.force_8bit ?
+				 ", force 8-bit" : "");
 
 			nfc_op->data_instr = instr;
 			nfc_op->data_instr_idx = op_id;
@@ -1391,7 +1393,8 @@ static void marvell_nfc_parse_instructions(const struct nand_subop *subop,
 
 		case NAND_OP_DATA_OUT_INSTR:
 			pr_debug("  ->DATA_OUT [%d B%s]\n", len,
-				 instr->data.force_8bit ? ", force 8-bit" : "");
+				 instr->ctx.data.force_8bit ?
+				 ", force 8-bit" : "");
 
 			nfc_op->data_instr = instr;
 			nfc_op->data_instr_idx = op_id;
@@ -1405,9 +1408,9 @@ static void marvell_nfc_parse_instructions(const struct nand_subop *subop,
 
 		case NAND_OP_WAITRDY_INSTR:
 			pr_debug("  ->WAITRDY  [max %d ms]\n",
-				 instr->waitrdy.timeout_ms);
+				 instr->ctx.waitrdy.timeout_ms);
 
-			nfc_op->rdy_timeout_ms = instr->waitrdy.timeout_ms;
+			nfc_op->rdy_timeout_ms = instr->ctx.waitrdy.timeout_ms;
 			nfc_op->rdy_delay_ns = instr->delay_ns;
 			break;
 		}
@@ -1425,41 +1428,36 @@ static void marvell_nfc_xfer_data(struct nand_chip *chip,
 	int last_len = len % FIFO_DEPTH;
 	int last_full_offset = round_down(len, FIFO_DEPTH);
 	const struct nand_op_instr *instr = nfc_op->data_instr;
-	u8 *in;
-	const u8 *out;
 	int i;
 
-	if (instr->data.force_8bit)
+	if (instr->ctx.data.force_8bit)
 		marvell_nfc_force_byte_access(chip, true);
 
 	if (instr->type == NAND_OP_DATA_IN_INSTR) {
-		in = &((u8 *)instr->data.in)[offset];
+		u8 *in = instr->ctx.data.buf.in + offset;
 
 		for (i = 0; i < last_full_offset; i += FIFO_DEPTH)
-			ioread32_rep(nfc->regs + NDDB,
-				     &((u32 *)in)[i / sizeof(u32)],
-				     FIFO_DEPTH_32);
+			ioread32_rep(nfc->regs + NDDB, in + i, FIFO_DEPTH_32);
 
 		if (last_len) {
 			ioread32_rep(nfc->regs + NDDB, nfc->buf, FIFO_DEPTH_32);
-			memcpy(&in[last_full_offset], nfc->buf, last_len);
+			memcpy(in + last_full_offset, nfc->buf, last_len);
 		}
 	} else {
-		out = &((const u8 *)instr->data.out)[offset];
+		const u8 *out = instr->ctx.data.buf.out + offset;
 
 		for (i = 0; i < last_full_offset; i += FIFO_DEPTH)
-			iowrite32_rep(nfc->regs + NDDB,
-				      &((u32 *)out)[i / sizeof(u32)],
+			iowrite32_rep(nfc->regs + NDDB, out + i,
 				      FIFO_DEPTH_32);
 
 		if (last_len) {
-			memcpy(nfc->buf, &out[last_full_offset], last_len);
+			memcpy(nfc->buf, out + last_full_offset, last_len);
 			iowrite32_rep(nfc->regs + NDDB, nfc->buf,
 				      FIFO_DEPTH_32);
 		}
 	}
 
-	if (instr->data.force_8bit)
+	if (instr->ctx.data.force_8bit)
 		marvell_nfc_force_byte_access(chip, false);
 }
 
