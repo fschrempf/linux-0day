@@ -1522,7 +1522,7 @@ EXPORT_SYMBOL_GPL(nand_change_read_column_op);
  * Returns 0 for success or negative error code otherwise
  */
 int nand_read_oob_op(struct nand_chip *chip, unsigned int page,
-		     unsigned int offset_in_page, void *buf, unsigned int len)
+		     unsigned int ooboffs, void *buf, unsigned int len)
 {
 	struct mtd_info *mtd = nand_to_mtd(chip);
 
