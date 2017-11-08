@@ -784,7 +784,7 @@ struct nand_op_data_instr {
 	union {
 		void *in;
 		const void *out;
-	};
+	} buf;
 	bool force_8bit;
 };
 
@@ -829,7 +829,7 @@ struct nand_op_instr {
 		struct nand_op_addr_instr addr;
 		struct nand_op_data_instr data;
 		struct nand_op_waitrdy_instr waitrdy;
-	};
+	} ctx;
 	unsigned int delay_ns;
 };
 
@@ -851,14 +851,14 @@ struct nand_op_instr {
 #define NAND_OP_CMD(id, ns)						\
 	{								\
 		.type = NAND_OP_CMD_INSTR,				\
-		.cmd.opcode = id,					\
+		.ctx.cmd.opcode = id,					\
 		.delay_ns = ns,						\
 	}
 
 #define NAND_OP_ADDR(ncycles, cycles, ns)				\
 	{								\
 		.type = NAND_OP_ADDR_INSTR,				\
-		.addr = {						\
+		.ctx.addr = {						\
 			.naddrs = ncycles,				\
 			.addrs = cycles,				\
 		},							\
@@ -868,9 +868,9 @@ struct nand_op_instr {
 #define NAND_OP_DATA_IN(l, buf, ns)					\
 	{								\
 		.type = NAND_OP_DATA_IN_INSTR,				\
-		.data = {						\
+		.ctx.data = {						\
 			.len = l,					\
-			.in = buf,					\
+			.buf.in = buf,					\
 			.force_8bit = false,				\
 		},							\
 		.delay_ns = ns,						\
@@ -879,31 +879,31 @@ struct nand_op_instr {
 #define NAND_OP_DATA_OUT(l, buf, ns)					\
 	{								\
 		.type = NAND_OP_DATA_OUT_INSTR,				\
-		.data = {						\
+		.ctx.data = {						\
 			.len = l,					\
-			.out = buf,					\
+			.buf.out = buf,					\
 			.force_8bit = false,				\
 		},							\
 		.delay_ns = ns,						\
 	}
 
-#define NAND_OP_8BIT_DATA_IN(l, buf, ns)				\
+#define NAND_OP_8BIT_DATA_IN(l, b, ns)					\
 	{								\
 		.type = NAND_OP_DATA_IN_INSTR,				\
-		.data = {						\
+		.ctx.data = {						\
 			.len = l,					\
-			.in = buf,					\
+			.buf.in = b,					\
 			.force_8bit = true,				\
 		},							\
 		.delay_ns = ns,						\
 	}
 
-#define NAND_OP_8BIT_DATA_OUT(l, buf, ns)				\
+#define NAND_OP_8BIT_DATA_OUT(l, b, ns)					\
 	{								\
 		.type = NAND_OP_DATA_OUT_INSTR,				\
-		.data = {						\
+		.ctx.data = {						\
 			.len = l,					\
-			.out = buf,					\
+			.buf.out = b,					\
 			.force_8bit = true,				\
 		},							\
 		.delay_ns = ns,						\
@@ -912,7 +912,7 @@ struct nand_op_instr {
 #define NAND_OP_WAIT_RDY(tout_ms, ns)					\
 	{								\
 		.type = NAND_OP_WAITRDY_INSTR,				\
-		.waitrdy.timeout_ms = tout_ms,				\
+		.ctx.waitrdy.timeout_ms = tout_ms,				\
 		.delay_ns = ns,						\
 	}
 

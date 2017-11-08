@@ -1309,10 +1309,10 @@ static int nand_sp_exec_read_page_op(struct nand_chip *chip, unsigned int page,
 		op.ninstrs--;
 
 	if (offset_in_page >= mtd->writesize)
-		instrs[0].cmd.opcode = NAND_CMD_READOOB;
+		instrs[0].ctx.cmd.opcode = NAND_CMD_READOOB;
 	else if (offset_in_page >= 256 &&
 		 !(chip->options & NAND_BUSWIDTH_16))
-		instrs[0].cmd.opcode = NAND_CMD_READ1;
+		instrs[0].ctx.cmd.opcode = NAND_CMD_READ1;
 
 	ret = nand_fill_column_cycles(chip, addrs, offset_in_page);
 	if (ret < 0)
@@ -1323,7 +1323,7 @@ static int nand_sp_exec_read_page_op(struct nand_chip *chip, unsigned int page,
 
 	if (chip->options & NAND_ROW_ADDR_3) {
 		addrs[3] = page >> 16;
-		instrs[1].addr.naddrs++;
+		instrs[1].ctx.addr.naddrs++;
 	}
 
 	return nand_exec_op(chip, &op);
@@ -1360,7 +1360,7 @@ static int nand_lp_exec_read_page_op(struct nand_chip *chip, unsigned int page,
 
 	if (chip->options & NAND_ROW_ADDR_3) {
 		addrs[4] = page >> 16;
-		instrs[1].addr.naddrs++;
+		instrs[1].ctx.addr.naddrs++;
 	}
 
 	return nand_exec_op(chip, &op);
@@ -1507,7 +1507,7 @@ int nand_change_read_column_op(struct nand_chip *chip,
 		if (!len)
 			op.ninstrs--;
 
-		instrs[3].data.force_8bit = force_8bit;
+		instrs[3].ctx.data.force_8bit = force_8bit;
 
 		return nand_exec_op(chip, &op);
 	}
@@ -1588,7 +1588,7 @@ static int nand_exec_prog_page_op(struct nand_chip *chip, unsigned int page,
 	if (chip->options & NAND_ROW_ADDR_3)
 		addrs[naddrs++] = page >> 16;
 
-	instrs[2].addr.naddrs = naddrs;
+	instrs[2].ctx.addr.naddrs = naddrs;
 
 	/* Drop the lasts instructions if we're not programming the page. */
 	if (!prog) {
@@ -1605,10 +1605,10 @@ static int nand_exec_prog_page_op(struct nand_chip *chip, unsigned int page,
 		 * to access.
 		 */
 		if (offset_in_page >= mtd->writesize)
-			instrs[0].cmd.opcode = NAND_CMD_READOOB;
+			instrs[0].ctx.cmd.opcode = NAND_CMD_READOOB;
 		else if (offset_in_page >= 256 &&
 			 !(chip->options & NAND_BUSWIDTH_16))
-			instrs[0].cmd.opcode = NAND_CMD_READ1;
+			instrs[0].ctx.cmd.opcode = NAND_CMD_READ1;
 	} else {
 		/*
 		 * Drop the first command if we're dealing with a large page
@@ -1784,7 +1784,7 @@ int nand_change_write_column_op(struct nand_chip *chip,
 		if (ret < 0)
 			return ret;
 
-		instrs[2].data.force_8bit = force_8bit;
+		instrs[2].ctx.data.force_8bit = force_8bit;
 
 		/* Drop the DATA_OUT instruction if len is set to 0. */
 		if (!len)
@@ -1921,7 +1921,7 @@ int nand_erase_op(struct nand_chip *chip, unsigned int eraseblock)
 		struct nand_operation op = NAND_OPERATION(instrs);
 
 		if (chip->options & NAND_ROW_ADDR_3)
-			instrs[1].addr.naddrs++;
+			instrs[1].ctx.addr.naddrs++;
 
 		return nand_exec_op(chip, &op);
 	}
@@ -2086,7 +2086,7 @@ int nand_read_data_op(struct nand_chip *chip, void *buf, unsigned int len,
 		};
 		struct nand_operation op = NAND_OPERATION(instrs);
 
-		instrs[0].data.force_8bit = force_8bit;
+		instrs[0].ctx.data.force_8bit = force_8bit;
 
 		return nand_exec_op(chip, &op);
 	}
@@ -2132,7 +2132,7 @@ int nand_write_data_op(struct nand_chip *chip, const void *buf,
 		};
 		struct nand_operation op = NAND_OPERATION(instrs);
 
-		instrs[0].data.force_8bit = force_8bit;
+		instrs[0].ctx.data.force_8bit = force_8bit;
 
 		return nand_exec_op(chip, &op);
 	}
@@ -2198,7 +2198,8 @@ nand_op_parser_must_split_instr(const struct nand_op_parser_pattern_elem *pat,
 		if (!pat->addr.maxcycles)
 			break;
 
-		if (instr->addr.naddrs - *start_offset > pat->addr.maxcycles) {
+		if (instr->ctx.addr.naddrs - *start_offset >
+		    pat->addr.maxcycles) {
 			*start_offset += pat->addr.maxcycles;
 			return true;
 		}
@@ -2209,7 +2210,7 @@ nand_op_parser_must_split_instr(const struct nand_op_parser_pattern_elem *pat,
 		if (!pat->data.maxlen)
 			break;
 
-		if (instr->data.len - *start_offset > pat->data.maxlen) {
+		if (instr->ctx.data.len - *start_offset > pat->data.maxlen) {
 			*start_offset += pat->data.maxlen;
 			return true;
 		}
@@ -2526,7 +2527,7 @@ int nand_subop_get_num_addr_cyc(const struct nand_subop *subop,
 	    subop->last_instr_end_off)
 		end_off = subop->last_instr_end_off;
 	else
-		end_off = subop->instrs[instr_idx].addr.naddrs;
+		end_off = subop->instrs[instr_idx].ctx.addr.naddrs;
 
 	return end_off - start_off;
 }
@@ -2586,7 +2587,7 @@ int nand_subop_get_data_len(const struct nand_subop *subop,
 	    subop->last_instr_end_off)
 		end_off = subop->last_instr_end_off;
 	else
-		end_off = subop->instrs[instr_idx].data.len;
+		end_off = subop->instrs[instr_idx].ctx.data.len;
 
 	return end_off - start_off;
 }
