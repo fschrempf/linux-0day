@@ -3076,6 +3076,10 @@ static int nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
 	uint8_t *ecc_calc = chip->buffers->ecccalc;
 	const uint8_t *p = buf;
 
+	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	if (ret)
+		return ret;
+
 	for (i = 0; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {
 		chip->ecc.hwctl(mtd, NAND_ECC_WRITE);
 
@@ -3095,7 +3099,7 @@ static int nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
 	if (ret)
 		return ret;
 
-	return 0;
+	return nand_prog_page_end_op(chip);
 }
 
 
@@ -3123,6 +3127,10 @@ static int nand_write_subpage_hwecc(struct mtd_info *mtd,
 	uint32_t end_step   = (offset + data_len - 1) / ecc_size;
 	int oob_bytes       = mtd->oobsize / ecc_steps;
 	int step, ret;
+
+	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	if (ret)
+		return ret;
 
 	for (step = 0; step < ecc_steps; step++) {
 		/* configure controller for WRITE access */
@@ -3162,7 +3170,7 @@ static int nand_write_subpage_hwecc(struct mtd_info *mtd,
 	if (ret)
 		return ret;
 
-	return 0;
+	return nand_prog_page_end_op(chip);
 }
 
 
@@ -3188,6 +3196,10 @@ static int nand_write_page_syndrome(struct mtd_info *mtd,
 	const uint8_t *p = buf;
 	uint8_t *oob = chip->oob_poi;
 	int ret;
+
+	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	if (ret)
+		return ret;
 
 	for (i = 0; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {
 		chip->ecc.hwctl(mtd, NAND_ECC_WRITE);
@@ -3231,7 +3243,7 @@ static int nand_write_page_syndrome(struct mtd_info *mtd,
 			return ret;
 	}
 
-	return 0;
+	return nand_prog_page_end_op(chip);
 }
 
 /**
