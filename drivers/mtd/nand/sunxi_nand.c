@@ -1147,7 +1147,7 @@ static int sunxi_nfc_hw_ecc_read_chunks_dma(struct mtd_info *mtd, uint8_t *buf,
 			 */
 			if (randomized)
 				nand_change_read_column_op(nand, data_off,
-							   data, ecc->size
+							   data, ecc->size,
 							   false);
 
 			/* TODO: use DMA to retrieve OOB */
@@ -1284,7 +1284,7 @@ static int sunxi_nfc_hw_ecc_read_page_dma(struct mtd_info *mtd,
 		return ret;
 
 	/* Fallback to PIO mode */
-	chip->cmdfunc(mtd, NAND_CMD_RNDOUT, 0, -1);
+	nand_change_read_column_op(chip, 0, NULL, 0, false);
 
 	return sunxi_nfc_hw_ecc_read_page(mtd, chip, buf, oob_required, page);
 }
@@ -1334,7 +1334,7 @@ static int sunxi_nfc_hw_ecc_read_subpage_dma(struct mtd_info *mtd,
 		return ret;
 
 	/* Fallback to PIO mode */
-	chip->cmdfunc(mtd, NAND_CMD_RNDOUT, 0, -1);
+	nand_change_read_column_op(chip, 0, NULL, 0, false);
 
 	return sunxi_nfc_hw_ecc_read_subpage(mtd, chip, data_offs, readlen,
 					     buf, page);

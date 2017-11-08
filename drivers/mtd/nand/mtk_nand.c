@@ -890,7 +890,7 @@ static int mtk_nfc_read_subpage(struct mtd_info *mtd, struct nand_chip *chip,
 	buf = bufpoi + start * chip->ecc.size;
 
 	if (column != 0)
-		chip->cmdfunc(mtd, NAND_CMD_RNDOUT, column, -1);
+		nand_change_read_column_op(chip, column, NULL, 0, false);
 
 	addr = dma_map_single(nfc->dev, buf, len, DMA_FROM_DEVICE);
 	rc = dma_mapping_error(nfc->dev, addr);

@@ -1220,7 +1220,7 @@ static int gpmi_ecc_read_subpage(struct mtd_info *mtd, struct nand_chip *chip,
 	meta = geo->metadata_size;
 	if (first) {
 		col = meta + (size + ecc_parity_size) * first;
-		chip->cmdfunc(mtd, NAND_CMD_RNDOUT, col, -1);
+		nand_change_read_column_op(chip, col, NULL, 0, false);
 
 		meta = 0;
 		buf = buf + first * size;
