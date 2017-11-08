@@ -136,7 +136,9 @@ micron_nand_read_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 	else if (status & NAND_STATUS_WRITE_RECOMMENDED)
 		max_bitflips = chip->ecc.strength;
 
-	nand_read_page_raw(mtd, chip, buf, oob_required, page);
+	nand_read_data_op(chip, buf, mtd->writesize, false);
+	if (oob_required)
+		nand_read_data_op(chip, chip->oob_poi, mtd->oobsize, false);
 
 	micron_nand_on_die_ecc_setup(chip, false);
 
