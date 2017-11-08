@@ -798,9 +798,11 @@ struct nand_op_waitrdy_instr {
 
 /**
  * enum nand_op_instr_type - Enumeration of all instruction types
- *
- * Please note that data instructions are separated into DATA_IN and DATA_OUT
- * instructions.
+ * @NAND_OP_CMD_INSTR: command instruction
+ * @NAND_OP_ADDR_INSTR: address instruction
+ * @NAND_OP_DATA_IN_INSTR: data in instruction
+ * @NAND_OP_DATA_OUT_INSTR: data out instruction
+ * @NAND_OP_WAITRDY_INSTR: wait ready instruction
  */
 enum nand_op_instr_type {
 	NAND_OP_CMD_INSTR,
@@ -1120,6 +1122,10 @@ int nand_op_parser_exec_op(struct nand_chip *chip,
  *			commands to the chip.
  * @waitfunc:		[REPLACEABLE] hardwarespecific function for wait on
  *			ready.
+ * @exec_op:		[REPLACEABLE] controller specific method to execute
+ *			NAND operations. This method replaces ->cmdfunc(),
+ *			->{read,write}_{buf,byte,word}(), ->dev_ready() and
+ *			->waifunc().
  * @setup_read_retry:	[FLASHSPECIFIC] flash (vendor) specific function for
  *			setting the read-retry mode. Mostly needed for MLC NAND.
  * @ecc:		[BOARDSPECIFIC] ECC control structure
@@ -1219,6 +1225,9 @@ struct nand_chip {
 	void (*cmdfunc)(struct mtd_info *mtd, unsigned command, int column,
 			int page_addr);
 	int(*waitfunc)(struct mtd_info *mtd, struct nand_chip *this);
+	int (*exec_op)(struct nand_chip *chip,
+		       const struct nand_operation *op,
+		       bool check_only);
 	int (*erase)(struct mtd_info *mtd, int page);
 	int (*scan_bbt)(struct mtd_info *mtd);
 	int (*onfi_set_features)(struct mtd_info *mtd, struct nand_chip *chip,
@@ -1228,10 +1237,6 @@ struct nand_chip {
 	int (*setup_read_retry)(struct mtd_info *mtd, int retry_mode);
 	int (*setup_data_interface)(struct mtd_info *mtd, int chipnr,
 				    const struct nand_data_interface *conf);
-
-	int (*exec_op)(struct nand_chip *chip,
-		       const struct nand_operation *op,
-		       bool check_only);
 
 	int chip_delay;
 	unsigned int options;
