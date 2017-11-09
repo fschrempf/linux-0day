@@ -2347,38 +2347,41 @@ static void nand_op_parser_trace(const struct nand_op_parser_ctx *ctx)
 		switch (instr->type) {
 		case NAND_OP_CMD_INSTR:
 			pr_debug("%sCMD      [0x%02x]\n", prefix,
-				 instr->cmd.opcode);
+				 instr->ctx.cmd.opcode);
 			break;
 		case NAND_OP_ADDR_INSTR:
 			/*
 			 * A log line is much less than 50 bytes, plus 5 bytes
 			 * per address cycle to display.
 			 */
-			len = 50 + 5 * instr->addr.naddrs;
-			buf = kmalloc(len, GFP_KERNEL);
+			len = 50 + 5 * instr->ctx.addr.naddrs;
+			buf = kzalloc(len, GFP_KERNEL);
 			if (!buf)
 				return;
-			memset(buf, 0, len);
+
 			off += snprintf(buf, len, "ADDR     [%d cyc:",
-					instr->addr.naddrs);
-			for (j = 0; j < instr->addr.naddrs; j++)
-				off += snprintf(&buf[off], len - off, " 0x%02x",
-						instr->addr.addrs[j]);
+					instr->ctx.addr.naddrs);
+			for (j = 0; j < instr->ctx.addr.naddrs; j++)
+				off += snprintf(&buf[off], len - off,
+						" 0x%02x",
+						instr->ctx.addr.addrs[j]);
 			pr_debug("%s%s]\n", prefix, buf);
 			break;
 		case NAND_OP_DATA_IN_INSTR:
 			pr_debug("%sDATA_IN  [%d B%s]\n", prefix,
-				 instr->data.len,
-				 instr->data.force_8bit ? ", force 8-bit" : "");
+				 instr->ctx.data.len,
+				 instr->ctx.data.force_8bit ?
+				 ", force 8-bit" : "");
 			break;
 		case NAND_OP_DATA_OUT_INSTR:
 			pr_debug("%sDATA_OUT [%d B%s]\n", prefix,
-				 instr->data.len,
-				 instr->data.force_8bit ? ", force 8-bit" : "");
+				 instr->ctx.data.len,
+				 instr->ctx.data.force_8bit ?
+				 ", force 8-bit" : "");
 			break;
 		case NAND_OP_WAITRDY_INSTR:
 			pr_debug("%sWAITRDY  [max %d ms]\n", prefix,
-				 instr->waitrdy.timeout_ms);
+				 instr->ctx.waitrdy.timeout_ms);
 			break;
 		}
 
