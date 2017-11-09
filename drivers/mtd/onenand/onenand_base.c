@@ -3977,8 +3977,6 @@ int onenand_scan(struct mtd_info *mtd, int maxchips)
 	mtd->_erase = onenand_erase;
 	mtd->_point = NULL;
 	mtd->_unpoint = NULL;
-	mtd->_read = onenand_read;
-	mtd->_write = onenand_write;
 	mtd->_read_oob = onenand_read_oob;
 	mtd->_write_oob = onenand_write_oob;
 	mtd->_panic_write = onenand_panic_write;
