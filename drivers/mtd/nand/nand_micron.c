@@ -149,7 +149,10 @@ micron_nand_read_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 	else if (status & NAND_STATUS_WRITE_RECOMMENDED)
 		max_bitflips = chip->ecc.strength;
 
-	ret = nand_read_page_raw(mtd, chip, buf, oob_required, page);
+	ret = nand_read_data_op(chip, buf, mtd->writesize, false);
+	if (!ret && oob_required)
+		ret = nand_read_data_op(chip, chip->oob_poi, mtd->oobsize,
+					false);
 
 out:
 	micron_nand_on_die_ecc_setup(chip, false);
@@ -310,7 +313,6 @@ static int micron_nand_init(struct nand_chip *chip)
 			return -EINVAL;
 		}
 
-		chip->ecc.options = NAND_ECC_CUSTOM_PAGE_ACCESS;
 		chip->ecc.bytes = 8;
 		chip->ecc.size = 512;
 		chip->ecc.strength = 4;
