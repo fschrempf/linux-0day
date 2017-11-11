@@ -456,9 +456,11 @@ static inline void nanddev_page_iter_init(struct nand_device *nand,
 	iter->oobbytes_per_page = mtd_oobavail(mtd, req);
 	iter->dataleft = req->len;
 	iter->oobleft = req->ooblen;
+	iter->req.databuf.in = req->datbuf;
 	iter->req.datalen = min_t(unsigned int,
 				  nand->memorg.pagesize - iter->req.dataoffs,
 				  iter->dataleft);
+	iter->req.oobbuf.in = req->oobbuf;
 	iter->req.ooblen = min_t(unsigned int,
 				 iter->oobbytes_per_page - iter->req.ooboffs,
 				 iter->oobleft);
@@ -474,7 +476,9 @@ static inline void nanddev_page_iter_next(struct nand_device *nand,
 {
 	nanddev_pos_next_page(nand, &iter->req.pos);
 	iter->dataleft -= iter->req.datalen;
+	iter->req.databuf.in += iter->req.datalen;
 	iter->oobleft -= iter->req.ooblen;
+	iter->req.oobbuf.in += iter->req.ooblen;
 	iter->req.dataoffs = 0;
 	iter->req.ooboffs = 0;
 	iter->req.datalen = min_t(unsigned int, nand->memorg.pagesize,
