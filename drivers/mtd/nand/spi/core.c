@@ -452,7 +452,7 @@ static bool spinand_isbad(struct nand_device *nand, const struct nand_pos *pos)
 		.pos = *pos,
 		.ooblen = 2,
 		.ooboffs = 0,
-		.oobbuf = spinand->oobbuf,
+		.oobbuf.in = spinand->oobbuf,
 	};
 
 	memset(spinand->oobbuf, 0, 2);
@@ -485,7 +485,7 @@ static int spinand_markbad(struct nand_device *nand, const struct nand_pos *pos)
 		.pos = *pos,
 		.ooboffs = 0,
 		.ooblen = 2,
-		.oobbuf = spinand->oobbuf,
+		.oobbuf.out = spinand->oobbuf,
 	};
 
 	/* Erase block before marking it bad. */
