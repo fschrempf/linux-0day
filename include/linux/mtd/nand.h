@@ -61,10 +61,16 @@ struct nand_page_io_req {
 	struct nand_pos pos;
 	unsigned int dataoffs;
 	unsigned int datalen;
-	void *databuf;
+	union {
+		const void *out;
+		void *in;
+	} databuf;
 	unsigned int ooboffs;
 	unsigned int ooblen;
-	void *oobbuf;
+	union {
+		const void *out;
+		void *in;
+	} oobbuf;
 };
 
 struct nand_ecc_req {
