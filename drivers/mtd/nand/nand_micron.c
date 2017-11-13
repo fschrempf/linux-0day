@@ -149,15 +149,15 @@ micron_nand_write_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 				  const uint8_t *buf, int oob_required,
 				  int page)
 {
-	int status;
+	int ret;
 
 	micron_nand_on_die_ecc_setup(chip, true);
-
-	status = nand_write_page_raw(mtd, chip, buf, oob_required, page);
-
+	nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	nand_write_page_raw(mtd, chip, buf, oob_required, page);
+	ret = nand_prog_page_end_op(chip);
 	micron_nand_on_die_ecc_setup(chip, false);
 
-	return status & NAND_STATUS_FAIL ? -EIO : 0;
+	return ret;
 }
 
 static int
@@ -166,6 +166,7 @@ micron_nand_read_page_raw_on_die_ecc(struct mtd_info *mtd,
 				     uint8_t *buf, int oob_required,
 				     int page)
 {
+	nand_read_page_op(chip, page, 0, NULL, 0);
 	nand_read_page_raw(mtd, chip, buf, oob_required, page);
 
 	return 0;
@@ -177,7 +178,10 @@ micron_nand_write_page_raw_on_die_ecc(struct mtd_info *mtd,
 				      const uint8_t *buf, int oob_required,
 				      int page)
 {
-	return nand_write_page_raw(mtd, chip, buf, oob_required, page);
+	nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	nand_write_page_raw(mtd, chip, buf, oob_required, page);
+
+	return nand_prog_page_end_op(chip);
 }
 
 enum {
