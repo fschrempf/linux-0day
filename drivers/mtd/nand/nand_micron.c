@@ -171,54 +171,10 @@ micron_nand_write_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 	if (ret)
 		return ret;
 
-	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
-	if (ret)
-		goto out;
-
 	ret = nand_write_page_raw(mtd, chip, buf, oob_required, page);
-	if (ret)
-		return ret;
-
-	ret = nand_prog_page_end_op(chip);
-
-out:
 	micron_nand_on_die_ecc_setup(chip, false);
 
 	return ret;
-}
-
-static int
-micron_nand_read_page_raw_on_die_ecc(struct mtd_info *mtd,
-				     struct nand_chip *chip,
-				     uint8_t *buf, int oob_required,
-				     int page)
-{
-	int ret;
-
-	ret = nand_read_page_op(chip, page, 0, NULL, 0);
-	if (ret)
-		return ret;
-
-	return nand_read_page_raw(mtd, chip, buf, oob_required, page);
-}
-
-static int
-micron_nand_write_page_raw_on_die_ecc(struct mtd_info *mtd,
-				      struct nand_chip *chip,
-				      const uint8_t *buf, int oob_required,
-				      int page)
-{
-	int ret;
-
-	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
-	if (ret)
-		return ret;
-
-	ret = nand_write_page_raw(mtd, chip, buf, oob_required, page);
-	if (ret)
-		return ret;
-
-	return nand_prog_page_end_op(chip);
 }
 
 enum {
@@ -319,10 +275,8 @@ static int micron_nand_init(struct nand_chip *chip)
 		chip->ecc.algo = NAND_ECC_BCH;
 		chip->ecc.read_page = micron_nand_read_page_on_die_ecc;
 		chip->ecc.write_page = micron_nand_write_page_on_die_ecc;
-		chip->ecc.read_page_raw =
-			micron_nand_read_page_raw_on_die_ecc;
-		chip->ecc.write_page_raw =
-			micron_nand_write_page_raw_on_die_ecc;
+		chip->ecc.read_page_raw = nand_read_page_raw;
+		chip->ecc.write_page_raw = nand_write_page_raw;
 
 		mtd_set_ooblayout(mtd, &micron_nand_on_die_ooblayout_ops);
 	}
