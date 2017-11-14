@@ -118,15 +118,27 @@ micron_nand_read_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 				 int page)
 {
 	u8 status;
-	int max_bitflips = 0;
+	int ret, max_bitflips = 0;
 
-	micron_nand_on_die_ecc_setup(chip, true);
+	ret = micron_nand_on_die_ecc_setup(chip, true);
+	if (ret)
+		return ret;
 
-	nand_read_page_op(chip, page, 0, NULL, 0);
-	nand_status_op(chip, &status);
-	nand_exit_status_op(chip);
+	ret = nand_read_page_op(chip, page, 0, NULL, 0);
+	if (ret)
+		goto out;
+
+	ret = nand_status_op(chip, &status);
+	if (ret)
+		goto out;
+
+	ret = nand_exit_status_op(chip);
+	if (ret)
+		goto out;
+
 	if (status & NAND_STATUS_FAIL)
 		mtd->ecc_stats.failed++;
+
 	/*
 	 * The internal ECC doesn't tell us the number of bitflips
 	 * that have been corrected, but tells us if it recommends to
@@ -137,11 +149,12 @@ micron_nand_read_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 	else if (status & NAND_STATUS_WRITE_RECOMMENDED)
 		max_bitflips = chip->ecc.strength;
 
-	nand_read_page_raw(mtd, chip, buf, oob_required, page);
+	ret = nand_read_page_raw(mtd, chip, buf, oob_required, page);
 
+out:
 	micron_nand_on_die_ecc_setup(chip, false);
 
-	return max_bitflips;
+	return ret ? ret : max_bitflips;
 }
 
 static int
@@ -151,10 +164,21 @@ micron_nand_write_page_on_die_ecc(struct mtd_info *mtd, struct nand_chip *chip,
 {
 	int ret;
 
-	micron_nand_on_die_ecc_setup(chip, true);
-	nand_prog_page_begin_op(chip, page, 0, NULL, 0);
-	nand_write_page_raw(mtd, chip, buf, oob_required, page);
+	ret = micron_nand_on_die_ecc_setup(chip, true);
+	if (ret)
+		return ret;
+
+	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	if (ret)
+		goto out;
+
+	ret = nand_write_page_raw(mtd, chip, buf, oob_required, page);
+	if (ret)
+		return ret;
+
 	ret = nand_prog_page_end_op(chip);
+
+out:
 	micron_nand_on_die_ecc_setup(chip, false);
 
 	return ret;
@@ -166,10 +190,13 @@ micron_nand_read_page_raw_on_die_ecc(struct mtd_info *mtd,
 				     uint8_t *buf, int oob_required,
 				     int page)
 {
-	nand_read_page_op(chip, page, 0, NULL, 0);
-	nand_read_page_raw(mtd, chip, buf, oob_required, page);
+	int ret;
 
-	return 0;
+	ret = nand_read_page_op(chip, page, 0, NULL, 0);
+	if (ret)
+		return ret;
+
+	return nand_read_page_raw(mtd, chip, buf, oob_required, page);
 }
 
 static int
@@ -178,8 +205,15 @@ micron_nand_write_page_raw_on_die_ecc(struct mtd_info *mtd,
 				      const uint8_t *buf, int oob_required,
 				      int page)
 {
-	nand_prog_page_begin_op(chip, page, 0, NULL, 0);
-	nand_write_page_raw(mtd, chip, buf, oob_required, page);
+	int ret;
+
+	ret = nand_prog_page_begin_op(chip, page, 0, NULL, 0);
+	if (ret)
+		return ret;
+
+	ret = nand_write_page_raw(mtd, chip, buf, oob_required, page);
+	if (ret)
+		return ret;
 
 	return nand_prog_page_end_op(chip);
 }

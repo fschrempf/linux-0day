@@ -1779,8 +1779,10 @@ int nand_reset(struct nand_chip *chip, int chipnr)
 	 * interface settings, hence this weird ->select_chip() dance.
 	 */
 	chip->select_chip(mtd, chipnr);
-	nand_reset_op(chip);
+	ret = nand_reset_op(chip);
 	chip->select_chip(mtd, -1);
+	if (ret)
+		return ret;
 
 	chip->select_chip(mtd, chipnr);
 	ret = nand_setup_data_interface(chip, chipnr);
@@ -2098,7 +2100,9 @@ static int nand_read_subpage(struct mtd_info *mtd, struct nand_chip *chip,
 		chip->cmdfunc(mtd, NAND_CMD_RNDOUT, data_col_addr, -1);
 
 	p = bufpoi + data_col_addr;
-	nand_read_data_op(chip, p, datafrag_len, false);
+	ret = nand_read_data_op(chip, p, datafrag_len, false);
+	if (ret)
+		return ret;
 
 	/* Calculate ECC */
 	for (i = 0; i < eccfrag_len ; i += chip->ecc.bytes, p += chip->ecc.size)
@@ -2269,7 +2273,9 @@ static int nand_read_page_hwecc_oob_first(struct mtd_info *mtd,
 	if (ret)
 		return ret;
 
-	nand_read_page_op(chip, page, 0, NULL, 0);
+	ret = nand_read_page_op(chip, page, 0, NULL, 0);
+	if (ret)
+		return ret;
 
 	ret = mtd_ooblayout_get_eccbytes(mtd, ecc_code, chip->oob_poi, 0,
 					 chip->ecc.total);
@@ -2511,8 +2517,11 @@ static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 						 __func__, buf);
 
 read_retry:
-			if (nand_standard_page_accessors(&chip->ecc))
-				nand_read_page_op(chip, page, 0, NULL, 0);
+			if (nand_standard_page_accessors(&chip->ecc)) {
+				ret = nand_read_page_op(chip, page, 0, NULL, 0);
+				if (ret)
+					break;
+			}
 
 			/*
 			 * Now read the page into the buffer.  Absent an error,
@@ -2691,15 +2700,19 @@ int nand_read_oob_syndrome(struct mtd_info *mtd, struct nand_chip *chip,
 	uint8_t *bufpoi = chip->oob_poi;
 	int i, toread, sndrnd = 0, pos, ret;
 
-	nand_read_page_op(chip, page, chip->ecc.size, NULL, 0);
+	ret = nand_read_page_op(chip, page, chip->ecc.size, NULL, 0);
+	if (ret)
+		return ret;
+
 	for (i = 0; i < chip->ecc.steps; i++) {
 		if (sndrnd) {
 			int ret;
 
 			pos = eccsize + i * (eccsize + chunk);
 			if (mtd->writesize > 512)
-				ret = nand_change_read_column_op(
-					chip, pos, NULL, 0, false);
+				ret = nand_change_read_column_op(chip, pos,
+								 NULL, 0,
+								 false);
 			else
 				ret = nand_read_page_op(chip, page, pos, NULL,
 							0);
@@ -2766,7 +2779,10 @@ int nand_write_oob_syndrome(struct mtd_info *mtd, struct nand_chip *chip,
 	} else
 		pos = eccsize;
 
-	nand_prog_page_begin_op(chip, page, pos, NULL, 0);
+	ret = nand_prog_page_begin_op(chip, page, pos, NULL, 0);
+	if (ret)
+		return ret;
+
 	for (i = 0; i < steps; i++) {
 		if (sndcmd) {
 			if (mtd->writesize <= 512) {
@@ -2785,8 +2801,9 @@ int nand_write_oob_syndrome(struct mtd_info *mtd, struct nand_chip *chip,
 				}
 			} else {
 				pos = eccsize + i * (eccsize + chunk);
-				ret = nand_change_write_column_op(
-					chip, pos, NULL, 0, false);
+				ret = nand_change_write_column_op(chip, pos,
+								  NULL, 0,
+								  false);
 				if (ret)
 					return ret;
 			}
@@ -4140,18 +4157,18 @@ static int nand_flash_detect_onfi(struct nand_chip *chip)
 	int i, ret, val;
 
 	/* Try ONFI for unknown chip or LP */
-	nand_readid_op(chip, 0x20, id, sizeof(id));
-	if (strncmp(id, "ONFI", 4))
+	ret = nand_readid_op(chip, 0x20, id, sizeof(id));
+	if (ret || strncmp(id, "ONFI", 4))
 		return 0;
 
 	ret = nand_read_param_page_op(chip, 0, NULL, 0);
 	if (ret)
-		return ret;
+		return 0;
 
 	for (i = 0; i < 3; i++) {
 		ret = nand_read_data_op(chip, p, sizeof(*p), true);
 		if (ret)
-			return ret;
+			return 0;
 
 		if (onfi_crc16(ONFI_CRC_BASE, (uint8_t *)p, 254) ==
 				le16_to_cpu(p->crc)) {
@@ -4247,18 +4264,18 @@ static int nand_flash_detect_jedec(struct nand_chip *chip)
 	int i, val, ret;
 
 	/* Try JEDEC for unknown chip or LP */
-	nand_readid_op(chip, 0x40, id, sizeof(id));
-	if (strncmp(id, "JEDEC", sizeof(id)))
+	ret = nand_readid_op(chip, 0x40, id, sizeof(id));
+	if (ret || strncmp(id, "JEDEC", sizeof(id)))
 		return 0;
 
 	ret = nand_read_param_page_op(chip, 0x40, NULL, 0);
 	if (ret)
-		return ret;
+		return 0;
 
 	for (i = 0; i < 3; i++) {
 		ret = nand_read_data_op(chip, p, sizeof(*p), true);
 		if (ret)
-			return ret;
+			return 0;
 
 		if (onfi_crc16(ONFI_CRC_BASE, (uint8_t *)p, 510) ==
 				le16_to_cpu(p->crc))
@@ -4537,7 +4554,7 @@ static int nand_detect(struct nand_chip *chip, struct nand_flash_dev *type)
 {
 	const struct nand_manufacturer *manufacturer;
 	struct mtd_info *mtd = nand_to_mtd(chip);
-	int busw;
+	int busw, ret;
 	u8 *id_data = chip->id.data;
 	u8 maf_id, dev_id;
 
@@ -4545,13 +4562,17 @@ static int nand_detect(struct nand_chip *chip, struct nand_flash_dev *type)
 	 * Reset the chip, required by some chips (e.g. Micron MT29FxGxxxxx)
 	 * after power-up.
 	 */
-	nand_reset(chip, 0);
+	ret = nand_reset(chip, 0);
+	if (ret)
+		return ret;
 
 	/* Select the device */
 	chip->select_chip(mtd, 0);
 
 	/* Send the command for reading device ID */
-	nand_readid_op(chip, 0, id_data, 2);
+	ret = nand_readid_op(chip, 0, id_data, 2);
+	if (ret)
+		return ret;
 
 	/* Read manufacturer and device IDs */
 	maf_id = id_data[0];
@@ -4565,7 +4586,9 @@ static int nand_detect(struct nand_chip *chip, struct nand_flash_dev *type)
 	 */
 
 	/* Read entire ID string */
-	nand_readid_op(chip, 0, id_data, sizeof(chip->id.data));
+	ret = nand_readid_op(chip, 0, id_data, sizeof(chip->id.data));
+	if (ret)
+		return ret;
 
 	if (id_data[0] != maf_id || id_data[1] != dev_id) {
 		pr_info("second ID read did not match %02x,%02x against %02x,%02x\n",
