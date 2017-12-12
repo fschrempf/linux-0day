@@ -91,6 +91,8 @@ struct spinand_id {
 struct spinand_controller_ops {
 	int (*exec_op)(struct spinand_device *spinand,
 		       struct spinand_op *op);
+	int (*setup)(struct spinand_device *spinand);
+	int (*setup_late)(struct spinand_device *spinand);
 };
 
 /**

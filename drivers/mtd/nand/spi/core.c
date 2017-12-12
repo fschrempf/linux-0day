@@ -39,6 +39,22 @@ static inline int spinand_exec_op(struct spinand_device *spinand,
 	return spinand->controller.controller->ops->exec_op(spinand, op);
 }
 
+static inline int spinand_setup_controller(struct spinand_device *spinand)
+{
+	if (!spinand->controller.controller->ops->setup)
+		return 0;
+
+	return spinand->controller.controller->ops->setup(spinand);
+}
+
+static inline int spinand_setup_controller_late(struct spinand_device *spinand)
+{
+	if (!spinand->controller.controller->ops->setup_late)
+		return 0;
+
+	return spinand->controller.controller->ops->setup_late(spinand);
+}
+
 static inline void spinand_op_init(struct spinand_op *op)
 {
 	memset(op, 0, sizeof(struct spinand_op));
@@ -687,6 +703,12 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	struct nand_device *nand = mtd_to_nanddev(mtd);
 	int ret;
 
+	ret = spinand_setup_controller(spinand);
+	if (ret) {
+		pr_err("Failed to setup the SPI NAND controller (err = %d).\n", ret);
+		return ret;
+	}
+
 	ret = spinand_detect(spinand);
 	if (ret) {
 		pr_err("Failed to detect a SPI NAND (err = %d).\n", ret);
@@ -716,6 +738,12 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	if (ret) {
 		pr_err("Init of SPI NAND failed (err = %d).\n", ret);
 		goto err_free_buf;
+	}
+
+	ret = spinand_setup_controller_late(spinand);
+	if (ret) {
+		pr_err("Failed to late setup the SPI NAND controller (err = %d).\n", ret);
+		return ret;
 	}
 
 	/*
