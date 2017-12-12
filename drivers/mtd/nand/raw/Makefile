@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 #
-# linux/drivers/raw/nand/Makefile
+# linux/drivers/mtd/nand/raw/Makefile
 #
 
 obj-$(CONFIG_MTD_NAND)			+= nand.o
