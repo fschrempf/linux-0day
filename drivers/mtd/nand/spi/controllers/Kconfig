@@ -3,3 +3,9 @@ config SPINAND_CONTROLLER_GENERIC
 	depends on MTD_SPI_NAND && SPI
 	help
 	  This is to support SPI NAND device with generic SPI controller.
+
+config SPINAND_CONTROLLER_FSL_QUADSPI
+	tristate "Freescale QUADSPI NAND controller"
+	depends on MTD_SPI_NAND
+	help
+	  This is to support SPI NAND device with Freescale QUADSPI controller.
