@@ -80,7 +80,6 @@ static void fsl_qspi_init_lut(struct fsl_qspi *qspi)
 	for (i = 0; i < QUADSPI_LUT_NUM; i++)
 		qspi_writel(qspi, 0, base + QUADSPI_LUT_BASE + i * 4);
 
-
 	/* Reset */
 	lut_base = SPINAND_SEQID_RESET * 4;
 	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_RESET), base + QUADSPI_LUT(lut_base));
@@ -91,11 +90,9 @@ static void fsl_qspi_init_lut(struct fsl_qspi *qspi)
 			base + QUADSPI_LUT(lut_base));
 
 	/* Select Die */
-	/*
 	lut_base = SPINAND_SEQID_DIE_SELECT * 4;
 	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_DIE_SELECT) | LUT1(FSL_WRITE, PAD1, 0x08),
 			base + QUADSPI_LUT(lut_base));
-	*/
 
 	/* Write Register */
 	lut_base = SPINAND_SEQID_SET_FEATURE * 4;
@@ -207,6 +204,8 @@ static int fsl_qspi_get_seqid(struct fsl_qspi *qspi, u8 cmd)
 		return SPINAND_SEQID_PROG_EXC;
 	case SPINAND_CMD_BLK_ERASE:
 		return SPINAND_SEQID_BLK_ERASE;
+	case SPINAND_CMD_DIE_SELECT:
+		return SPINAND_SEQID_DIE_SELECT;
 	default:
 		dev_err(qspi->dev, "Unsupported cmd 0x%.2x\n", cmd);
 		break;
@@ -646,6 +645,9 @@ static int fsl_qspi_spinand_controller_exec_op(struct spinand_device *spinand,
 	case SPINAND_CMD_SET_FEATURE:
 		addr = (addr & 0xFF) | ((u32)(op->tx_buf[0]) << 8);
 		fsl_qspi_write(qspi, op->cmd, 0, &addr, 2);
+		break;
+	case SPINAND_CMD_DIE_SELECT:
+		fsl_qspi_write(qspi, op->cmd, 0, &addr, 1);
 		break;
 	case SPINAND_CMD_READ_FROM_CACHE_X4:
 	case SPINAND_CMD_READ_FROM_CACHE_FAST:

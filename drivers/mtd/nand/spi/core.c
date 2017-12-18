@@ -154,6 +154,36 @@ static int spinand_load_page_op(struct spinand_device *spinand,
 	return spinand_exec_op(spinand, &op);
 }
 
+static int spinand_die_select_op(struct spinand_device *spinand,
+				 const u8 lun)
+{
+	struct nand_device *nand = spinand_to_nand(spinand);
+	struct spinand_op op;
+	int ret;
+
+	/*
+	 * No need to select a LUN if only one LUN is available, or
+	 * the correct LUN is already selected
+	 */
+	if (nand->memorg.luns_per_target < 2)
+		return 0;
+	if (spinand->current_lun == lun)
+		return 0;
+
+	spinand_op_init(&op);
+	op.cmd = SPINAND_CMD_DIE_SELECT;
+	op.n_addr = 1;
+	op.addr[0] = lun;
+
+	ret = spinand_exec_op(spinand, &op);
+	if(ret)
+		return ret;
+
+	spinand->current_lun = lun;
+
+	return 0;
+}
+
 static int spinand_get_address_bits(u8 opcode)
 {
 	switch (opcode) {
@@ -382,6 +412,7 @@ static int spinand_read_page(struct spinand_device *spinand,
 	struct nand_device *nand = spinand_to_nand(spinand);
 	int ret;
 
+	spinand_die_select_op(spinand, req->pos.lun);
 	spinand_load_page_op(spinand, req);
 
 	ret = spinand_wait(spinand, NULL);
@@ -403,6 +434,7 @@ static int spinand_write_page(struct spinand_device *spinand,
 	u8 status;
 	int ret = 0;
 
+	spinand_die_select_op(spinand, req->pos.lun);
 	spinand_write_enable_op(spinand);
 	spinand_write_to_cache_op(spinand, req);
 	spinand_program_op(spinand, req);
@@ -534,6 +566,7 @@ static int spinand_erase(struct nand_device *nand, const struct nand_pos *pos)
 	u8 status;
 	int ret;
 
+	spinand_die_select_op(spinand, pos->lun);
 	spinand_write_enable_op(spinand);
 	spinand_erase_op(spinand, pos);
 
@@ -703,6 +736,7 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	struct mtd_info *mtd = spinand_to_mtd(spinand);
 	struct nand_device *nand = mtd_to_nanddev(mtd);
 	int ret;
+	u8 i;
 
 	ret = spinand_setup_controller(spinand);
 	if (ret) {
@@ -758,10 +792,14 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	mtd->_block_isreserved = spinand_mtd_block_isreserved;
 	mtd->_erase = spinand_mtd_erase;
 
-	/* After power up, all blocks are locked, so unlock it here. */
-	spinand_lock_block(spinand, BL_ALL_UNLOCKED);
-	/* Right now, we don't support ECC, so disable on-die ECC */
-	spinand_disable_ecc(spinand);
+	/* execute initial commands on each LUN */
+	for(i = 0; i < nand->memorg.luns_per_target; i++) {
+		spinand_die_select_op(spinand, i);
+		/* After power up, all blocks are locked, so unlock it here. */
+		spinand_lock_block(spinand, BL_ALL_UNLOCKED);
+		/* Right now, we don't support ECC, so disable on-die ECC */
+		spinand_disable_ecc(spinand);
+	}
 
 	return 0;
 

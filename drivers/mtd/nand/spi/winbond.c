@@ -37,7 +37,7 @@ struct winbond_spinand_info {
 
 static const struct winbond_spinand_info winbond_spinand_table[] = {
 	WINBOND_SPI_NAND_INFO("W25M02GV", 0xAB,
-			     NAND_MEMORG(1, 2048, 64, 64, 1024, 1, 1, 1),
+			     NAND_MEMORG(1, 2048, 64, 64, 1024, 1, 2, 1),
 			     NAND_ECCREQ(8, 512),
 			     SPINAND_RW_COMMON),
 };
@@ -87,6 +87,8 @@ static bool winbond_spinand_scan_id_table(struct spinand_device *spinand,
 		nand->memorg = item->memorg;
 		nand->eccreq = item->eccreq;
 		spinand->rw_mode = item->rw_mode;
+		/* upon reset LUN 0 is selected by default */
+		spinand->current_lun = 0;
 
 		return true;
 	}
