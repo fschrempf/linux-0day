@@ -538,6 +538,7 @@ static int spinand_markbad(struct nand_device *nand, const struct nand_pos *pos)
 	};
 
 	/* Erase block before marking it bad. */
+	spinand_die_select_op(spinand, pos->lun);
 	spinand_write_enable_op(spinand);
 	spinand_erase_op(spinand, pos);
 
