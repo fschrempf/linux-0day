@@ -165,8 +165,6 @@ static int spinand_die_select_op(struct spinand_device *spinand,
 	 * No need to select a LUN if only one LUN is available, or
 	 * the correct LUN is already selected
 	 */
-	if (nand->memorg.luns_per_target < 2)
-		return 0;
 	if (spinand->current_lun == lun)
 		return 0;
 
