@@ -417,7 +417,7 @@ static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 			break;
 
 		ops->retlen += iter.req.datalen;
-		ops->oobretlen += iter.req.datalen;
+		ops->oobretlen += iter.req.ooblen;
 	}
 	mutex_unlock(&spinand->lock);
 
@@ -473,7 +473,7 @@ static int spinand_mtd_block_isbad(struct mtd_info *mtd, loff_t offs)
 
 	nanddev_offs_to_pos(nand, offs, &pos);
 	mutex_lock(&spinand->lock);
-	ret = nanddev_markbad(nand, &pos);
+	ret = nanddev_isbad(nand, &pos);
 	mutex_unlock(&spinand->lock);
 
 	return ret;
