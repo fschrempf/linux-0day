@@ -436,7 +436,7 @@ static int spinand_mtd_write(struct mtd_info *mtd, loff_t to,
 	nanddev_io_for_each_page(nand, to, ops, &iter) {
 		ret = spinand_write_page(spinand, &iter.req);
 		if (ret)
-			return ret;
+			break;
 
 		ops->retlen += iter.req.datalen;
 		ops->oobretlen += iter.req.ooblen;
