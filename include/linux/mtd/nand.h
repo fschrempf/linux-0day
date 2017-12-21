@@ -391,9 +391,8 @@ static inline loff_t nanddev_pos_to_offs(struct nand_device *nand,
 static inline unsigned int nanddev_pos_to_row(struct nand_device *nand,
 					      const struct nand_pos *pos)
 {
-	return (pos->lun << nand->rowconv.lun_addr_shift) |
-	       (pos->eraseblock << nand->rowconv.eraseblock_addr_shift) |
-	       pos->page;
+	return (pos->eraseblock << nand->rowconv.eraseblock_addr_shift) |
+	        pos->page;
 }
 
 static inline void nanddev_pos_next_target(struct nand_device *nand,

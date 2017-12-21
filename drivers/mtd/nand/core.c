@@ -184,9 +184,7 @@ int nanddev_init(struct nand_device *nand, const struct nand_ops *ops,
 	    !memorg->ntargets)
 		return -EINVAL;
 
-	nand->rowconv.eraseblock_addr_shift = fls(memorg->pagesize);
-	nand->rowconv.lun_addr_shift = fls(memorg->eraseblocks_per_lun) +
-				       nand->rowconv.eraseblock_addr_shift;
+	nand->rowconv.eraseblock_addr_shift = fls(memorg->pages_per_eraseblock) - 1;
 
 	nand->ops = ops;
 
