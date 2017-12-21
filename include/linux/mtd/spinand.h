@@ -43,7 +43,7 @@
 #define SPINAND_CMD_READ_ID			0x9f
 #define SPINAND_CMD_WR_DISABLE			0x04
 #define SPINAND_CMD_WR_ENABLE			0x06
-#define SPINAND_CMD_DIE_SELECT			0xC2
+#define SPINAND_CMD_TARGET_SELECT		0xC2
 
 /* feature register */
 #define REG_BLOCK_LOCK		0xa0
@@ -177,7 +177,7 @@ struct spinand_device {
 	u8 *buf;
 	u8 *oobbuf;
 	u32 rw_mode;
-	u8 current_lun;
+	u8 current_target;
 	struct {
 		struct spinand_controller *controller;
 		void *priv;

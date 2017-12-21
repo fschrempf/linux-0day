@@ -154,30 +154,30 @@ static int spinand_load_page_op(struct spinand_device *spinand,
 	return spinand_exec_op(spinand, &op);
 }
 
-static int spinand_die_select_op(struct spinand_device *spinand,
-				 const u8 lun)
+static int spinand_target_select_op(struct spinand_device *spinand,
+				 const u8 target)
 {
 	struct nand_device *nand = spinand_to_nand(spinand);
 	struct spinand_op op;
 	int ret;
 
 	/*
-	 * No need to select a LUN if only one LUN is available, or
-	 * the correct LUN is already selected
+	 * No need to select a target if only one target is available, or
+	 * the correct target is already selected
 	 */
-	if (spinand->current_lun == lun)
+	if (spinand->current_target == target)
 		return 0;
 
 	spinand_op_init(&op);
-	op.cmd = SPINAND_CMD_DIE_SELECT;
+	op.cmd = SPINAND_CMD_TARGET_SELECT;
 	op.n_addr = 1;
-	op.addr[0] = lun;
+	op.addr[0] = target;
 
 	ret = spinand_exec_op(spinand, &op);
 	if(ret)
 		return ret;
 
-	spinand->current_lun = lun;
+	spinand->current_target = target;
 
 	return 0;
 }
@@ -410,7 +410,7 @@ static int spinand_read_page(struct spinand_device *spinand,
 	struct nand_device *nand = spinand_to_nand(spinand);
 	int ret;
 
-	spinand_die_select_op(spinand, req->pos.lun);
+	spinand_target_select_op(spinand, req->pos.target);
 	spinand_load_page_op(spinand, req);
 
 	ret = spinand_wait(spinand, NULL);
@@ -432,7 +432,7 @@ static int spinand_write_page(struct spinand_device *spinand,
 	u8 status;
 	int ret = 0;
 
-	spinand_die_select_op(spinand, req->pos.lun);
+	spinand_target_select_op(spinand, req->pos.target);
 	spinand_write_enable_op(spinand);
 	spinand_write_to_cache_op(spinand, req);
 	spinand_program_op(spinand, req);
@@ -536,7 +536,7 @@ static int spinand_markbad(struct nand_device *nand, const struct nand_pos *pos)
 	};
 
 	/* Erase block before marking it bad. */
-	spinand_die_select_op(spinand, pos->lun);
+	spinand_target_select_op(spinand, pos->target);
 	spinand_write_enable_op(spinand);
 	spinand_erase_op(spinand, pos);
 
@@ -565,7 +565,7 @@ static int spinand_erase(struct nand_device *nand, const struct nand_pos *pos)
 	u8 status;
 	int ret;
 
-	spinand_die_select_op(spinand, pos->lun);
+	spinand_target_select_op(spinand, pos->target);
 	spinand_write_enable_op(spinand);
 	spinand_erase_op(spinand, pos);
 
@@ -791,9 +791,9 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	mtd->_block_isreserved = spinand_mtd_block_isreserved;
 	mtd->_erase = spinand_mtd_erase;
 
-	/* execute initial commands on each LUN */
-	for(i = 0; i < nand->memorg.luns_per_target; i++) {
-		spinand_die_select_op(spinand, i);
+	/* execute initial commands on each target */
+	for(i = 0; i < nand->memorg.ntargets; i++) {
+		spinand_target_select_op(spinand, i);
 		/* After power up, all blocks are locked, so unlock it here. */
 		spinand_lock_block(spinand, BL_ALL_UNLOCKED);
 		/* Right now, we don't support ECC, so disable on-die ECC */
