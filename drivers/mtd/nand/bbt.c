@@ -52,8 +52,9 @@ int nanddev_bbt_get_block_status(const struct nand_device *nand,
 				 unsigned int entry)
 {
 	unsigned int bits_per_block = fls(NAND_BBT_BLOCK_NUM_STATUS);
-	unsigned long *pos = nand->bbt.cache + (entry / bits_per_block);
-	unsigned int offs = entry % bits_per_block;
+	unsigned long *pos = nand->bbt.cache +
+			     ((entry * bits_per_block) / BITS_PER_LONG);
+	unsigned int offs = (entry * bits_per_block) % BITS_PER_LONG;
 	unsigned long status;
 
 	if (entry >= nanddev_neraseblocks(nand))
@@ -71,8 +72,9 @@ int nanddev_bbt_set_block_status(struct nand_device *nand, unsigned int entry,
 				 enum nand_bbt_block_status status)
 {
 	unsigned int bits_per_block = fls(NAND_BBT_BLOCK_NUM_STATUS);
-	unsigned long *pos = nand->bbt.cache + (entry / bits_per_block);
-	unsigned int offs = entry % bits_per_block;
+	unsigned long *pos = nand->bbt.cache +
+			     ((entry * bits_per_block) / BITS_PER_LONG);
+	unsigned int offs = (entry * bits_per_block) % BITS_PER_LONG;
 	unsigned long val = status & GENMASK(bits_per_block - 1, 0);
 
 	if (entry >= nanddev_neraseblocks(nand))
