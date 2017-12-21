@@ -1,5 +1,5 @@
 #
-# linux/drivers/raw/nand/Makefile
+# linux/drivers/mtd/nand/raw/Makefile
 #
 
 obj-$(CONFIG_MTD_NAND)			+= nand.o
