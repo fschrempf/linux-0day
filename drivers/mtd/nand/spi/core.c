@@ -1,16 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- *
  * Copyright (c) 2016-2017 Micron Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Authors:
+ *	Peter Pan <peterpandong@micron.com>
  */
 
 #define pr_fmt(fmt)	"spi-nand: " fmt
@@ -566,26 +559,21 @@ static int spinand_mtd_block_isreserved(struct mtd_info *mtd, loff_t offs)
 
 static void spinand_set_rd_wr_op(struct spinand_device *spinand)
 {
-	u32 controller_cap = spinand->controller.controller->caps;
-	u32 rw_mode = spinand->rw_mode;
+	u32 rw_modes = spinand->rw_modes &
+		       spinand->controller.controller->caps;
 
-	if ((controller_cap & SPINAND_CAP_RD_QUAD) &&
-	    (rw_mode & SPINAND_RD_QUAD))
+	if (rw_modes & SPINAND_CAP_RD_QUAD)
 		spinand->read_cache_op = SPINAND_CMD_READ_FROM_CACHE_QUAD_IO;
-	else if ((controller_cap & SPINAND_CAP_RD_X4) &&
-		 (rw_mode & SPINAND_RD_X4))
+	else if (rw_modes & SPINAND_CAP_RD_X4)
 		spinand->read_cache_op = SPINAND_CMD_READ_FROM_CACHE_X4;
-	else if ((controller_cap & SPINAND_CAP_RD_DUAL) &&
-		 (rw_mode & SPINAND_RD_DUAL))
+	else if (rw_modes & SPINAND_CAP_RD_DUAL)
 		spinand->read_cache_op = SPINAND_CMD_READ_FROM_CACHE_DUAL_IO;
-	else if ((controller_cap & SPINAND_CAP_RD_X2) &&
-		 (rw_mode & SPINAND_RD_X2))
+	else if (rw_modes & SPINAND_CAP_RD_X2)
 		spinand->read_cache_op = SPINAND_CMD_READ_FROM_CACHE_X2;
 	else
 		spinand->read_cache_op = SPINAND_CMD_READ_FROM_CACHE_FAST;
 
-	if ((controller_cap & SPINAND_CAP_WR_X4) &&
-	    (rw_mode & SPINAND_WR_X4))
+	if (rw_modes & SPINAND_CAP_WR_X4)
 		spinand->write_cache_op = SPINAND_CMD_PROG_LOAD_X4;
 	else
 		spinand->write_cache_op = SPINAND_CMD_PROG_LOAD;
@@ -642,8 +630,12 @@ static int spinand_detect(struct spinand_device *spinand)
 }
 
 /**
- * devm_spinand_alloc - [SPI NAND Interface] allocate SPI NAND device instance
- * @dev: pointer to device model structure
+ * devm_spinand_alloc() - allocate SPI NAND device instance
+ * @dev: pointer to the parent device (the device owning the newly allocated
+ *	 spinand device)
+ *
+ * Return: a pointer to a spinand device in case of success, an ERR_PTR()
+ *	   otherwise. The returned value should be checked with IS_ERR().
  */
 struct spinand_device *devm_spinand_alloc(struct device *dev)
 {
@@ -664,8 +656,10 @@ struct spinand_device *devm_spinand_alloc(struct device *dev)
 EXPORT_SYMBOL_GPL(devm_spinand_alloc);
 
 /**
- * spinand_init - [SPI NAND Interface] initialize the SPI NAND device
- * @spinand: SPI NAND device structure
+ * spinand_init() - initialize a SPI NAND device
+ * @spinand: SPI NAND device
+ *
+ * Return: 0 in case of success, a negative error code otherwise.
  */
 int spinand_init(struct spinand_device *spinand, struct module *owner)
 {
@@ -729,8 +723,8 @@ err_free_buf:
 EXPORT_SYMBOL_GPL(spinand_init);
 
 /**
- * spinand_cleanup - clean SPI NAND device
- * @spinand: SPI NAND device structure
+ * spinand_cleanup() - cleanup a SPI NAND device
+ * @spinand: SPI NAND device
  */
 void spinand_cleanup(struct spinand_device *spinand)
 {
