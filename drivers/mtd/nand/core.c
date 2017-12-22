@@ -196,6 +196,7 @@ int nanddev_init(struct nand_device *nand, const struct nand_ops *ops,
 	mtd->flags = MTD_CAP_NANDFLASH;
 	mtd->erasesize = memorg->pagesize * memorg->pages_per_eraseblock;
 	mtd->writesize = memorg->pagesize;
+	mtd->writebufsize = memorg->pagesize;
 	mtd->oobsize = memorg->oobsize;
 	mtd->size = nanddev_size(nand);
 	mtd->owner = owner;
