@@ -4,6 +4,7 @@
  *
  *  Authors:
  *	Boris Brezillon <boris.brezillon@free-electrons.com>
+ *	Peter Pan <peterpandong@micron.com>
  */
 
 #ifndef __LINUX_MTD_NAND_H
