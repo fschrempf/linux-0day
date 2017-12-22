@@ -1,15 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2017 Free Electrons
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * Authors:
  *	Boris Brezillon <boris.brezillon@free-electrons.com>
@@ -20,6 +11,13 @@
 
 #include <linux/mtd/nand.h>
 
+/**
+ * nanddev_isbad() - Check if a block is bad
+ * @nand: NAND device
+ * @pos: position pointing to the block we want to check
+ *
+ * Return: true if the block is bad, false otherwise.
+ */
 bool nanddev_isbad(struct nand_device *nand, const struct nand_pos *pos)
 {
 	if (nanddev_bbt_is_initialized(nand)) {
@@ -50,13 +48,12 @@ bool nanddev_isbad(struct nand_device *nand, const struct nand_pos *pos)
 EXPORT_SYMBOL_GPL(nanddev_isbad);
 
 /**
- * nanddev_markbad - Write a bad block marker to a block
+ * nanddev_markbad() - Mark a block as bad
  * @nand: NAND device
  * @block: block to mark bad
  *
  * Mark a block bad. This function is updating the BBT if available and
- * calls the low-level markbad hook (nand->ops->markbad()) if
- * NAND_BBT_NO_OOB_BBM is not set.
+ * calls the low-level markbad hook (nand->ops->markbad()).
  *
  * Return: 0 in case of success, a negative error code otherwise.
  */
@@ -92,6 +89,15 @@ out:
 }
 EXPORT_SYMBOL_GPL(nanddev_markbad);
 
+/**
+ * nanddev_isreserved() - Check whether an eraseblock is reserved or not
+ * @nand: NAND device
+ * @pos: NAND position to test
+ *
+ * Checks whether the eraseblock pointed by @pos is reserved or not.
+ *
+ * Return: true if the eraseblock is reserved, false otherwise.
+ */
 bool nanddev_isreserved(struct nand_device *nand, const struct nand_pos *pos)
 {
 	unsigned int entry;
@@ -108,15 +114,14 @@ bool nanddev_isreserved(struct nand_device *nand, const struct nand_pos *pos)
 EXPORT_SYMBOL_GPL(nanddev_isreserved);
 
 /**
- * nanddev_erase - Erase a NAND portion
+ * nanddev_erase() - Erase a NAND portion
  * @nand: NAND device
  * @block: eraseblock to erase
  *
- * Erase @block block if it's not bad.
+ * Erases @block if it's not bad.
  *
  * Return: 0 in case of success, a negative error code otherwise.
  */
-
 int nanddev_erase(struct nand_device *nand, const struct nand_pos *pos)
 {
 	if (nanddev_isbad(nand, pos) || nanddev_isreserved(nand, pos)) {
@@ -129,6 +134,21 @@ int nanddev_erase(struct nand_device *nand, const struct nand_pos *pos)
 }
 EXPORT_SYMBOL_GPL(nanddev_erase);
 
+/**
+ * nanddev_mtd_erase() - Generic mtd->_erase() implementation for NAND devices
+ * @mtd: MTD device
+ * @einfo: erase request
+ *
+ * This is a simple mtd->_erase() implementation iterating over all blocks
+ * concerned by @einfo and calling nand->ops->erase() on each of them.
+ *
+ * Note that mtd->_erase should not be directly assigned to this helper,
+ * because there's no locking here. NAND specialized layers should instead
+ * implement there own wrapper around nanddev_mtd_erase() taking the
+ * appropriate lock before calling nanddev_mtd_erase().
+ *
+ * Return: 0 in case of success, a negative error code otherwise.
+ */
 int nanddev_mtd_erase(struct mtd_info *mtd, struct erase_info *einfo)
 {
 	struct nand_device *nand = mtd_to_nanddev(mtd);
@@ -156,13 +176,13 @@ int nanddev_mtd_erase(struct mtd_info *mtd, struct erase_info *einfo)
 EXPORT_SYMBOL_GPL(nanddev_mtd_erase);
 
 /**
- * nanddev_init - Initialize a NAND device
+ * nanddev_init() - Initialize a NAND device
  * @nand: NAND device
  * @memorg: NAND memory organization descriptor
  * @ops: NAND device operations
  *
- * Initialize a NAND device object. Consistency checks are done on @memorg and
- * @ops.
+ * Initializes a NAND device object. Consistency checks are done on @memorg and
+ * @ops. Also takes care of initializing the BBT.
  *
  * Return: 0 in case of success, a negative error code otherwise.
  */
@@ -205,6 +225,12 @@ int nanddev_init(struct nand_device *nand, const struct nand_ops *ops,
 }
 EXPORT_SYMBOL_GPL(nanddev_init);
 
+/**
+ * nanddev_cleanup() - Release resources allocated in nanddev_init()
+ * @nand: NAND device
+ *
+ * Basically undoes what has been done in nanddev_init().
+ */
 void nanddev_cleanup(struct nand_device *nand)
 {
 	if (nanddev_bbt_is_initialized(nand))

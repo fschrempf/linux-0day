@@ -1,15 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2017 Free Electrons
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * Authors:
  *	Boris Brezillon <boris.brezillon@free-electrons.com>
@@ -21,6 +12,14 @@
 #include <linux/mtd/nand.h>
 #include <linux/slab.h>
 
+/**
+ * nanddev_bbt_init() - Initialize the BBT (Bad Block Table)
+ * @nand: NAND device
+ *
+ * Initialize the in-memory BBT.
+ *
+ * Return: 0 in case of success, a negative error code otherwise.
+ */
 int nanddev_bbt_init(struct nand_device *nand)
 {
 	unsigned int bits_per_block = fls(NAND_BBT_BLOCK_NUM_STATUS);
@@ -36,18 +35,41 @@ int nanddev_bbt_init(struct nand_device *nand)
 }
 EXPORT_SYMBOL_GPL(nanddev_bbt_init);
 
+/**
+ * nanddev_bbt_cleanup() - Cleanup the BBT (Bad Block Table)
+ * @nand: NAND device
+ *
+ * Undoes what has been done in nanddev_bbt_init()
+ */
 void nanddev_bbt_cleanup(struct nand_device *nand)
 {
 	kfree(nand->bbt.cache);
 }
 EXPORT_SYMBOL_GPL(nanddev_bbt_cleanup);
 
+/**
+ * nanddev_bbt_update() - Update a BBT
+ * @nand: nand device
+ *
+ * Update the BBT. Currently a NOP function since on-flash bbt is not yet
+ * supported.
+ *
+ * Return: 0 in case of success, a negative error code otherwise.
+ */
 int nanddev_bbt_update(struct nand_device *nand)
 {
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nanddev_bbt_update);
 
+/**
+ * nanddev_bbt_get_block_status() - Return the status of an eraseblock
+ * @nand: nand device
+ * @entry: the BBT entry
+ *
+ * Return: a positive number nand_bbt_block_status status or -%ERANGE if @entry
+ *	   is bigger than the BBT size.
+ */
 int nanddev_bbt_get_block_status(const struct nand_device *nand,
 				 unsigned int entry)
 {
@@ -68,6 +90,19 @@ int nanddev_bbt_get_block_status(const struct nand_device *nand,
 }
 EXPORT_SYMBOL_GPL(nanddev_bbt_get_block_status);
 
+/**
+ * nanddev_bbt_set_block_status() - Update the status of an eraseblock in the
+ *				    in-memory BBT
+ * @nand: nand device
+ * @entry: the BBT entry to update
+ * @status: the new status
+ *
+ * Update an entry of the in-memory BBT. If you want to push the updated BBT
+ * the NAND you should call nanddev_bbt_update().
+ *
+ * Return: 0 in case of success or -%ERANGE if @entry is bigger than the BBT
+ *	   size.
+ */
 int nanddev_bbt_set_block_status(struct nand_device *nand, unsigned int entry,
 				 enum nand_bbt_block_status status)
 {
