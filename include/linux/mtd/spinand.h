@@ -1,16 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- *
  * Copyright (c) 2016-2017 Micron Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *  Authors:
+ *	Peter Pan <peterpandong@micron.com>
  */
 #ifndef __LINUX_MTD_SPINAND_H
 #define __LINUX_MTD_SPINAND_H
@@ -79,6 +72,11 @@ struct spinand_device;
  * @data: buffer containing the id bytes. Currently 4 bytes large, but can
  *	  be extended if required.
  * @len: ID length
+ *
+ * struct_spinand_id->data contains all bytes returned after a READ_ID command,
+ * including dummy bytes if the chip does not emit ID bytes right after the
+ * READ_ID command. The responsibility to extract real ID bytes is left to
+ * struct_manufacurer_ops->detect().
  */
 struct spinand_id {
 	u8 data[SPINAND_MAX_ID_LEN];
@@ -87,7 +85,7 @@ struct spinand_id {
 
 /**
  * struct spinand_controller_ops - SPI NAND controller operations
- * @exec_op: executute SPI NAND operation
+ * @exec_op: execute a SPI NAND operation
  */
 struct spinand_controller_ops {
 	int (*exec_op)(struct spinand_device *spinand,
@@ -97,16 +95,21 @@ struct spinand_controller_ops {
 };
 
 /**
- * struct manufacurer_ops - SPI NAND manufacturer specified operations
- * @detect: detect SPI NAND device, should bot be NULL.
- *          ->detect() implementation for manufacturer A never sends
- *          any manufacturer specific SPI command to a SPI NAND from
- *          manufacturer B, so the proper way is to decode the raw id
- *          data in spinand->id.data first, if manufacture ID dismatch,
- *          return directly and let others to detect.
- * @init: initialize SPI NAND device.
- * @cleanup: clean SPI NAND device footprint.
- * @prepare_op: prepara read/write operation.
+ * struct manufacurer_ops - SPI NAND manufacturer specific operations
+ * @detect: detect a SPI NAND device. Every time a SPI NAND device is probed
+ *	    the core calls the struct_manufacurer_ops->detect() hook of each
+ *	    registered manufacturer until one of them return true. Note that
+ *	    the first thing to check in this hook is that the manufacturer ID
+ *	    in struct_spinand_device->id matches the manufacturer whose
+ *	    ->detect() hook has been called. Should return true if there's a
+ *	    match, false otherwise. When true is returned, the core assumes
+ *	    that properties of the NAND chip (spinand->base.memorg and
+ *	    spinand->base.eccreq) have been filled.
+ * @init: initialize a SPI NAND device
+ * @cleanup: cleanup a SPI NAND device
+ * @adjust_cache_op: adjust a cache read/write operation. The manufacturer
+ *		     driver can for example tweak the address cycles to pass
+ *		     a plane ID
  */
 struct spinand_manufacturer_ops {
 	bool (*detect)(struct spinand_device *spinand);
@@ -121,7 +124,7 @@ struct spinand_manufacturer_ops {
  * struct spinand_manufacturer - SPI NAND manufacturer instance
  * @id: manufacturer ID
  * @name: manufacturer name
- * @ops: point to manufacturer operations
+ * @ops: manufacturer operations
  */
 struct spinand_manufacturer {
 	u8 id;
@@ -145,8 +148,9 @@ extern const struct spinand_manufacturer winbond_spinand_manufacturer;
 
 /**
  * struct spinand_controller - SPI NAND controller instance
- * @ops: point to controller operations
- * @caps: controller capabilities
+ * @ops: controller operations
+ * @caps: controller capabilities (should be a combination of SPINAND_CAP_XXX
+ *	  flags)
  */
 struct spinand_controller {
 	struct spinand_controller_ops *ops;
@@ -156,17 +160,15 @@ struct spinand_controller {
 /**
  * struct spinand_device - SPI NAND device instance
  * @base: NAND device instance
- * @bbp: internal bad block pattern descriptor
- * @lock: protection lock
- * @id: ID structure
- * @read_cache_op: Opcode of read from cache
- * @write_cache_op: Opcode of program load
- * @buf: buffer for read/write data
- * @oobbuf: buffer for read/write oob
- * @rw_mode: read/write mode of SPI NAND device
- * @controller: SPI NAND controller instance
- * @manufacturer: SPI NAND manufacturer instance, describe
- *                manufacturer related objects
+ * @lock: lock used to serialize accesses to the NAND
+ * @id: NAND ID as returned by READ_ID
+ * @read_cache_op: opcode for the "read from cache" operation
+ * @write_cache_op: opcode for the "write to cache" operation
+ * @buf: bounce buffer for data
+ * @oobbuf: bounce buffer for OOB data
+ * @rw_modes: supported read/write mode (combination of SPINAND_CAP_XXX flags)
+ * @controller: SPI NAND controller information
+ * @manufacturer: SPI NAND manufacturer information
  */
 struct spinand_device {
 	struct nand_device base;
@@ -176,8 +178,8 @@ struct spinand_device {
 	u8 write_cache_op;
 	u8 *buf;
 	u8 *oobbuf;
-	u32 rw_mode;
 	u8 current_target;
+	u32 rw_modes;
 	struct {
 		struct spinand_controller *controller;
 		void *priv;
@@ -189,10 +191,10 @@ struct spinand_device {
 };
 
 /**
- * mtd_to_spinand - Get the SPI NAND device attached to the MTD instance
+ * mtd_to_spinand() - Get the SPI NAND device attached to an MTD instance
  * @mtd: MTD instance
  *
- * Returns the SPI NAND device attached to @mtd.
+ * Return: the SPI NAND device attached to @mtd.
  */
 static inline struct spinand_device *mtd_to_spinand(struct mtd_info *mtd)
 {
@@ -200,10 +202,10 @@ static inline struct spinand_device *mtd_to_spinand(struct mtd_info *mtd)
 }
 
 /**
- * spinand_to_mtd - Get the MTD device attached to the SPI NAND device
+ * spinand_to_mtd() - Get the MTD device embedded in a SPI NAND device
  * @spinand: SPI NAND device
  *
- * Returns the MTD device attached to @spinand.
+ * Return: the MTD device embedded in @spinand.
  */
 static inline struct mtd_info *spinand_to_mtd(struct spinand_device *spinand)
 {
@@ -211,10 +213,10 @@ static inline struct mtd_info *spinand_to_mtd(struct spinand_device *spinand)
 }
 
 /**
- * nand_to_spinand - Get the SPI NAND device embedding an NAND object
+ * nand_to_spinand() - Get the SPI NAND device embedding an NAND object
  * @nand: NAND object
  *
- * Returns the SPI NAND device embedding @nand.
+ * Return: the SPI NAND device embedding @nand.
  */
 static inline struct spinand_device *nand_to_spinand(struct nand_device *nand)
 {
@@ -222,10 +224,10 @@ static inline struct spinand_device *nand_to_spinand(struct nand_device *nand)
 }
 
 /**
- * spinand_to_nand - Get the NAND device embedded in a SPI NAND object
+ * spinand_to_nand() - Get the NAND device embedded in a SPI NAND object
  * @spinand: SPI NAND device
  *
- * Returns the NAND device embedded in @spinand.
+ * Return: the NAND device embedded in @spinand.
  */
 static inline struct nand_device *
 spinand_to_nand(struct spinand_device *spinand)
@@ -249,11 +251,11 @@ static inline void spinand_set_of_node(struct spinand_device *spinand,
 #define SPINAND_MAX_ADDR_LEN	4
 
 /**
- * struct spinand_op - SPI NAND operation description
+ * struct spinand_op - SPI NAND operation
  * @cmd: opcode to send
- * @n_addr: address bytes
- * @addr_nbits: number of bit used to transfer address
- * @dummy_types: dummy bytes followed address
+ * @n_addr: number of address bytes
+ * @addr_nbits: number of useful bits in the address cycles
+ * @dummy_bytes: number of dummy bytes following address or command cycles
  * @addr: address or dummy bytes buffer
  * @n_tx: size of tx_buf
  * @tx_buf: data to be written
@@ -273,24 +275,6 @@ struct spinand_op {
 	u8 *rx_buf;
 	u8 data_nbits;
 };
-
-/* SPI NAND supported OP mode */
-#define SPINAND_RD_X1		BIT(0)
-#define SPINAND_RD_X2		BIT(1)
-#define SPINAND_RD_X4		BIT(2)
-#define SPINAND_RD_DUAL		BIT(3)
-#define SPINAND_RD_QUAD		BIT(4)
-#define SPINAND_WR_X1		BIT(5)
-#define SPINAND_WR_X2		BIT(6)
-#define SPINAND_WR_X4		BIT(7)
-#define SPINAND_WR_DUAL		BIT(8)
-#define SPINAND_WR_QUAD		BIT(9)
-
-#define SPINAND_RD_COMMON	(SPINAND_RD_X1 | SPINAND_RD_X2 | \
-				 SPINAND_RD_X4 | SPINAND_RD_DUAL | \
-				 SPINAND_RD_QUAD)
-#define SPINAND_WR_COMMON	(SPINAND_WR_X1 | SPINAND_WR_X4)
-#define SPINAND_RW_COMMON	(SPINAND_RD_COMMON | SPINAND_WR_COMMON)
 
 struct spinand_device *devm_spinand_alloc(struct device *dev);
 int spinand_init(struct spinand_device *spinand, struct module *owner);
