@@ -26,26 +26,21 @@ static inline void spinand_adjust_cache_op(struct spinand_device *spinand,
 	spinand->manufacturer.manu->ops->adjust_cache_op(spinand, req, op);
 }
 
+static inline void spinand_set_target_select_op(struct spinand_device *spinand,
+					   struct spinand_op *op,
+					   const u8 target)
+{
+	if (!spinand->manufacturer.manu->ops->set_target_select_op)
+		return;
+
+	spinand->manufacturer.manu->ops->set_target_select_op(spinand, op,
+							      target);
+}
+
 static inline int spinand_exec_op(struct spinand_device *spinand,
 				  struct spinand_op *op)
 {
 	return spinand->controller.controller->ops->exec_op(spinand, op);
-}
-
-static inline int spinand_setup_controller(struct spinand_device *spinand)
-{
-	if (!spinand->controller.controller->ops->setup)
-		return 0;
-
-	return spinand->controller.controller->ops->setup(spinand);
-}
-
-static inline int spinand_setup_controller_late(struct spinand_device *spinand)
-{
-	if (!spinand->controller.controller->ops->setup_late)
-		return 0;
-
-	return spinand->controller.controller->ops->setup_late(spinand);
 }
 
 static inline void spinand_op_init(struct spinand_op *op)
@@ -54,6 +49,7 @@ static inline void spinand_op_init(struct spinand_op *op)
 	op->addr_nbits = 1;
 	op->data_nbits = 1;
 }
+
 
 static int spinand_read_reg_op(struct spinand_device *spinand, u8 reg, u8 *val)
 {
@@ -150,7 +146,6 @@ static int spinand_load_page_op(struct spinand_device *spinand,
 static int spinand_target_select_op(struct spinand_device *spinand,
 				 const u8 target)
 {
-	struct nand_device *nand = spinand_to_nand(spinand);
 	struct spinand_op op;
 	int ret;
 
@@ -162,9 +157,7 @@ static int spinand_target_select_op(struct spinand_device *spinand,
 		return 0;
 
 	spinand_op_init(&op);
-	op.cmd = SPINAND_CMD_TARGET_SELECT;
-	op.n_addr = 1;
-	op.addr[0] = target;
+	spinand_set_target_select_op(spinand, &op, target);
 
 	ret = spinand_exec_op(spinand, &op);
 	if(ret)
@@ -731,10 +724,12 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	int ret;
 	u8 i;
 
-	ret = spinand_setup_controller(spinand);
-	if (ret) {
-		pr_err("Failed to setup the SPI NAND controller (err = %d).\n", ret);
-		return ret;
+	if (spinand->controller.controller->ops->setup) {
+		ret = spinand->controller.controller->ops->setup(spinand);
+		if (ret) {
+			pr_err("Failed to setup the SPI NAND controller (err = %d).\n", ret);
+			return ret;
+		}
 	}
 
 	ret = spinand_detect(spinand);
@@ -748,6 +743,7 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 		return ret;
 
 	spinand_set_rd_wr_op(spinand);
+	spinand->current_target = 0;
 
 	/*
 	 * Use kzalloc() instead of devm_kzalloc() here, because some drivers
@@ -768,10 +764,12 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 		goto err_free_buf;
 	}
 
-	ret = spinand_setup_controller_late(spinand);
-	if (ret) {
-		pr_err("Failed to late setup the SPI NAND controller (err = %d).\n", ret);
-		return ret;
+	if (spinand->controller.controller->ops->setup_late) {
+		ret = spinand->controller.controller->ops->setup_late(spinand);
+		if (ret) {
+			pr_err("Failed to setup_late the SPI NAND controller (err = %d).\n", ret);
+			return ret;
+		}
 	}
 
 	/*

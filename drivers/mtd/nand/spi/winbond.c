@@ -1,15 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2017 exceet electronics GmbH
+ * Copyright (c) 2018 exceet electronics GmbH
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Authors:
+ *	Frieder Schrempf <frieder.schrempf@exceet.de>
  */
 
 #include <linux/device.h>
@@ -23,7 +17,7 @@ struct winbond_spinand_info {
 	u8 dev_id;
 	struct nand_memory_organization memorg;
 	struct nand_ecc_req eccreq;
-	unsigned int rw_mode;
+	unsigned int rw_modes;
 };
 
 #define WINBOND_SPI_NAND_INFO(nm, did, mo, er, rwm)			\
@@ -32,18 +26,21 @@ struct winbond_spinand_info {
 		.dev_id = (did),					\
 		.memorg = mo,						\
 		.eccreq = er,						\
-		.rw_mode = (rwm)					\
+		.rw_modes = (rwm)					\
 	}
 
 static const struct winbond_spinand_info winbond_spinand_table[] = {
 	WINBOND_SPI_NAND_INFO("W25M02GV", 0xAB,
 			     NAND_MEMORG(1, 2048, 64, 64, 1024, 1, 1, 2),
 			     NAND_ECCREQ(8, 512),
-			     SPINAND_RW_COMMON),
+			     SPINAND_CAP_RD_X1 | SPINAND_CAP_RD_X2 |
+			     SPINAND_CAP_RD_X4 | SPINAND_CAP_RD_DUAL |
+			     SPINAND_CAP_RD_QUAD |
+			     SPINAND_CAP_WR_X1 | SPINAND_CAP_WR_X4),
 };
 
 static int winbond_spinand_get_dummy(struct spinand_device *spinand,
-				    struct spinand_op *op)
+				     struct spinand_op *op)
 {
 	u8 opcode = op->cmd;
 
@@ -64,15 +61,8 @@ static int winbond_spinand_get_dummy(struct spinand_device *spinand,
 	}
 }
 
-/**
- * winbond_spinand_scan_id_table - scan SPI NAND info in id table
- * @spinand: SPI NAND device structure
- * @id: point to manufacture id and device id
- * Description:
- *   If found in id table, config device with table information.
- */
 static bool winbond_spinand_scan_id_table(struct spinand_device *spinand,
-					 u8 dev_id)
+					  u8 dev_id)
 {
 	struct mtd_info *mtd = spinand_to_mtd(spinand);
 	struct nand_device *nand = mtd_to_nanddev(mtd);
@@ -86,9 +76,7 @@ static bool winbond_spinand_scan_id_table(struct spinand_device *spinand,
 
 		nand->memorg = item->memorg;
 		nand->eccreq = item->eccreq;
-		spinand->rw_mode = item->rw_mode;
-		/* upon reset LUN 0 is selected by default */
-		spinand->current_target = 0;
+		spinand->rw_modes = item->rw_modes;
 
 		return true;
 	}
@@ -96,18 +84,13 @@ static bool winbond_spinand_scan_id_table(struct spinand_device *spinand,
 	return false;
 }
 
-/**
- * winbond_spinand_detect - initialize device related part in spinand_device
- * struct if it is a Winbond device.
- * @spinand: SPI NAND device structure
- */
 static bool winbond_spinand_detect(struct spinand_device *spinand)
 {
 	u8 *id = spinand->id.data;
 
 	/*
-	 * Winbond SPI NAND read ID need a dummy byte,
-	 * so the first byte in raw_id is dummy.
+	 * Winbond SPI NAND read ID needs a dummy byte,
+	 * so the first byte in raw_id is a dummy.
 	 */
 	if (id[1] != SPINAND_MFR_WINBOND)
 		return false;
@@ -115,36 +98,22 @@ static bool winbond_spinand_detect(struct spinand_device *spinand)
 	return winbond_spinand_scan_id_table(spinand, id[2]);
 }
 
-/**
- * winbond_spinand_prepare_op - Fix address for cache operation.
- * @spinand: SPI NAND device structure
- * @op: pointer to spinand_op struct
- * @page: page address
- * @column: column address
- */
-static void winbond_spinand_adjust_cache_op(struct spinand_device *spinand,
-					   const struct nand_page_io_req *req,
-					   struct spinand_op *op)
+static void winbond_spinand_set_target_select_op(struct spinand_device *spinand,
+						 struct spinand_op *op,
+						 const u8 target)
 {
-	struct nand_device *nand = spinand_to_nand(spinand);
-	unsigned int shift;
-
-	/*
-	 * No need to specify the plane number if there's only one plane per
-	 * LUN.
+	/* 
+	 * To select a target/die run the special command with one argument
+	 * (address of the die)
 	 */
-	if (nand->memorg.planes_per_lun < 2)
-		return;
-
-	/* The plane number is passed in MSB just above the column address */
-	shift = fls(nand->memorg.pagesize);
-	op->addr[(16 - shift) / 8] |= req->pos.plane << (shift % 8);
-	op->dummy_bytes = winbond_spinand_get_dummy(spinand, op);
+	op->cmd = SPINAND_CMD_TARGET_SELECT;
+	op->n_addr = 1;
+	op->addr[0] = target;
 }
 
 static const struct spinand_manufacturer_ops winbond_spinand_manuf_ops = {
 	.detect = winbond_spinand_detect,
-	.adjust_cache_op = winbond_spinand_adjust_cache_op,
+	.set_target_select_op = winbond_spinand_set_target_select_op,
 };
 
 const struct spinand_manufacturer winbond_spinand_manufacturer = {

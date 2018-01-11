@@ -1,16 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) 2013 Freescale Semiconductor, Inc.
- * Copyright (c) 2017 exceet electronics GmbH
+ * Copyright (c) 2018 exceet electronics GmbH
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * derived from drivers/mtd/spi-nor/fsl-quadspi.c:
+ * 	Copyright (C) 2013 Freescale Semiconductor, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Authors:
+ *	Frieder Schrempf <frieder.schrempf@exceet.de>
  */
 
 #include <linux/kernel.h>

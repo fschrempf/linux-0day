@@ -110,6 +110,9 @@ struct spinand_controller_ops {
  * @adjust_cache_op: adjust a cache read/write operation. The manufacturer
  *		     driver can for example tweak the address cycles to pass
  *		     a plane ID
+ * @set_target_select_op: fill the op that selects different targets on multi
+ * 			  target/die chips. Some vendors use a separate command
+ * 			  and some use a write to a configuration register.
  */
 struct spinand_manufacturer_ops {
 	bool (*detect)(struct spinand_device *spinand);
@@ -118,6 +121,9 @@ struct spinand_manufacturer_ops {
 	void (*adjust_cache_op)(struct spinand_device *spinand,
 				const struct nand_page_io_req *req,
 				struct spinand_op *op);
+	void (*set_target_select_op)(struct spinand_device *spinand,
+				     struct spinand_op *op,
+				     const u8 target);
 };
 
 /**
