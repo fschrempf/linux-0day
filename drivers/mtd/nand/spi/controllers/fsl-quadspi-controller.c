@@ -22,22 +22,8 @@
 #include <linux/mtd/mtd.h>
 
 /* SEQID -- we can have 16 seqids at most. */
-#define SPINAND_SEQID_PAGE_READ			0
-#define SPINAND_SEQID_READ_FROM_CACHE_FAST	1
-#define SPINAND_SEQID_READ_FROM_CACHE_X4	2
-#define SPINAND_SEQID_WR_ENABLE			3
-#define SPINAND_SEQID_WR_DISABLE		4
-#define SPINAND_SEQID_GET_FEATURE		5
-#define SPINAND_SEQID_SET_FEATURE		6
-#define SPINAND_SEQID_BLK_ERASE			7
-#define SPINAND_SEQID_PROG_EXC			8
-#define SPINAND_SEQID_PROG_LOAD_RDM_DATA_X4	9
-#define SPINAND_SEQID_PROG_LOAD_RDM_DATA	10
-#define SPINAND_SEQID_PROG_LOAD_X4		12
-#define SPINAND_SEQID_PROG_LOAD			12
-#define SPINAND_SEQID_READ_ID			13
-#define SPINAND_SEQID_RESET			14
-#define SPINAND_SEQID_TARGET_SELECT		15
+#define SPINAND_SEQID_DEFAULT			0
+#define SPINAND_SEQID_AHB			1
 
 struct fsl_qspi_spinand_controller {
 	struct spinand_controller ctrl;
@@ -63,7 +49,7 @@ static irqreturn_t fsl_qspi_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void fsl_qspi_init_lut(struct fsl_qspi *qspi)
+static void fsl_qspi_init_ahb_lut(struct fsl_qspi *qspi, struct spinand_device *spinand)
 {
 	void __iomem *base = qspi->iobase;
 	int rxfifo = qspi->devtype_data->rxfifo;
@@ -76,137 +62,91 @@ static void fsl_qspi_init_lut(struct fsl_qspi *qspi)
 	for (i = 0; i < QUADSPI_LUT_NUM; i++)
 		qspi_writel(qspi, 0, base + QUADSPI_LUT_BASE + i * 4);
 
-	/* Reset */
-	lut_base = SPINAND_SEQID_RESET * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_RESET), base + QUADSPI_LUT(lut_base));
-
-	/* Read ID */
-	lut_base = SPINAND_SEQID_READ_ID * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_READ_ID) | LUT1(FSL_READ, PAD1, SPINAND_MAX_ID_LEN),
-			base + QUADSPI_LUT(lut_base));
-
-	/* Select Die/Target */
-	lut_base = SPINAND_SEQID_TARGET_SELECT * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_TARGET_SELECT) | LUT1(FSL_WRITE, PAD1, 0x08),
-			base + QUADSPI_LUT(lut_base));
-
-	/* Write Register */
-	lut_base = SPINAND_SEQID_SET_FEATURE * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_SET_FEATURE) | LUT1(FSL_WRITE, PAD1, 0x10),
-			base + QUADSPI_LUT(lut_base));
-
-	/* Read Register */
-	lut_base = SPINAND_SEQID_GET_FEATURE * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_GET_FEATURE) | LUT1(FSL_WRITE, PAD1, 0x08),
-			base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(FSL_READ, PAD1, 0x1),
-			base + QUADSPI_LUT(lut_base + 1));
-
-	/* Read page to Cache */
-	lut_base = SPINAND_SEQID_PAGE_READ * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_PAGE_READ) | LUT1(ADDR, PAD1, 0x18),
+	/* Read from Cache */
+	lut_base = SPINAND_SEQID_AHB * 4;
+	qspi_writel(qspi, LUT0(CMD, LUT_PAD1, spinand->read_cache_op) | LUT1(ADDR, LUT_PAD1, 0x10),
 		base + QUADSPI_LUT(lut_base));
-
-	/* Read from Cache Fast */
-	lut_base = SPINAND_SEQID_READ_FROM_CACHE_FAST * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_READ_FROM_CACHE_FAST) | LUT1(ADDR, PAD1, 0x10),
-		base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(DUMMY, PAD1, 0x08) | LUT1(FSL_READ, PAD1, rxfifo),
+	qspi_writel(qspi, LUT0(DUMMY, LUT_PAD1, 0x08) | LUT1(FSL_READ,
+		(spinand->read_cache_op == SPINAND_CMD_READ_FROM_CACHE_X4 ? LUT_PAD4:LUT_PAD1), rxfifo),
 		base + QUADSPI_LUT(lut_base + 1));
-
-	/* Read from Cache X4 */
-	lut_base = SPINAND_SEQID_READ_FROM_CACHE_X4 * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_READ_FROM_CACHE_X4) | LUT1(ADDR, PAD1, 0x10),
-		base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(DUMMY, PAD1, 0x08) | LUT1(FSL_READ, PAD4, rxfifo),
-		base + QUADSPI_LUT(lut_base + 1));
-
-	/* Write enable */
-	lut_base = SPINAND_SEQID_WR_ENABLE * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_WR_ENABLE), base + QUADSPI_LUT(lut_base));
-
-	/* Write disable */
-	lut_base = SPINAND_SEQID_WR_DISABLE * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_WR_DISABLE), base + QUADSPI_LUT(lut_base));
-
-	/* Program Data Load Random (write to cache) X4 */
-	lut_base = SPINAND_SEQID_PROG_LOAD_RDM_DATA_X4 * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_PROG_LOAD_RDM_DATA_X4) | LUT1(ADDR, PAD1, 0x10),
-			base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(FSL_WRITE, PAD4, 0), base + QUADSPI_LUT(lut_base + 1));
-
-	/* Program Data Load Random (write to cache) */
-	lut_base = SPINAND_SEQID_PROG_LOAD_RDM_DATA * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_PROG_LOAD_RDM_DATA) | LUT1(ADDR, PAD1, 0x10),
-			base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(FSL_WRITE, PAD1, 0), base + QUADSPI_LUT(lut_base + 1));
-
-	/* Program Data Load (write to cache) X4 */
-	lut_base = SPINAND_SEQID_PROG_LOAD_X4 * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_PROG_LOAD_X4) | LUT1(ADDR, PAD1, 0x10),
-			base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(FSL_WRITE, PAD4, 0), base + QUADSPI_LUT(lut_base + 1));
-
-	/* Program Data Load (write to cache) */
-	lut_base = SPINAND_SEQID_PROG_LOAD * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_PROG_LOAD) | LUT1(ADDR, PAD1, 0x10),
-			base + QUADSPI_LUT(lut_base));
-	qspi_writel(qspi, LUT0(FSL_WRITE, PAD1, 0), base + QUADSPI_LUT(lut_base + 1));
-
-	/* Program Execute */
-	lut_base = SPINAND_SEQID_PROG_EXC * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_PROG_EXC) | LUT1(ADDR, PAD1, 0x18),
-		base + QUADSPI_LUT(lut_base));
-
-	/* Erase block */
-	lut_base = SPINAND_SEQID_BLK_ERASE * 4;
-	qspi_writel(qspi, LUT0(CMD, PAD1, SPINAND_CMD_BLK_ERASE) | LUT1(ADDR, PAD1, 0x18),
-			base + QUADSPI_LUT(lut_base));
 
 	fsl_qspi_lock_lut(qspi);
 }
 
-/* Get the SEQID for the command */
-static int fsl_qspi_get_seqid(struct fsl_qspi *qspi, u8 cmd)
+static int fsl_qspi_set_lut_entry(struct fsl_qspi *qspi, struct spinand_op *op, u8 entry)
 {
-	switch (cmd) {
-	case SPINAND_CMD_RESET:
-		return SPINAND_SEQID_RESET;
-	case SPINAND_CMD_READ_ID:
-		return SPINAND_SEQID_READ_ID;
-	case SPINAND_CMD_SET_FEATURE:
-		return SPINAND_SEQID_SET_FEATURE;
-	case SPINAND_CMD_GET_FEATURE:
-		return SPINAND_SEQID_GET_FEATURE;
-	case SPINAND_CMD_PAGE_READ:
-		return SPINAND_SEQID_PAGE_READ;
-	case SPINAND_CMD_READ_FROM_CACHE_FAST:
-		return SPINAND_SEQID_READ_FROM_CACHE_FAST;
-	case SPINAND_CMD_READ_FROM_CACHE_X4:
-		return SPINAND_SEQID_READ_FROM_CACHE_X4;
-	case SPINAND_CMD_WR_ENABLE:
-		return SPINAND_SEQID_WR_ENABLE;
-	case SPINAND_CMD_WR_DISABLE:
-		return SPINAND_SEQID_WR_DISABLE;
-	case SPINAND_CMD_PROG_LOAD_RDM_DATA_X4:
-		return SPINAND_SEQID_PROG_LOAD_RDM_DATA_X4;
-	case SPINAND_CMD_PROG_LOAD_RDM_DATA:
-		return SPINAND_SEQID_PROG_LOAD_RDM_DATA;
-	case SPINAND_CMD_PROG_LOAD_X4:
-		return SPINAND_SEQID_PROG_LOAD_X4;
-	case SPINAND_CMD_PROG_LOAD:
-		return SPINAND_SEQID_PROG_LOAD;
-	case SPINAND_CMD_PROG_EXC:
-		return SPINAND_SEQID_PROG_EXC;
-	case SPINAND_CMD_BLK_ERASE:
-		return SPINAND_SEQID_BLK_ERASE;
-	case SPINAND_CMD_TARGET_SELECT:
-		return SPINAND_SEQID_TARGET_SELECT;
-	default:
-		dev_err(qspi->dev, "Unsupported cmd 0x%.2x\n", cmd);
-		break;
+	void __iomem *base = qspi->iobase;
+	int rxfifo = qspi->devtype_data->rxfifo;
+	u32 entry_base = entry * 4;
+	u32 lut_reg;
+	u32 ntx = op->n_tx, nrx = op->n_rx;
+	u32 tmp;
+	u32 i;
+
+	fsl_qspi_unlock_lut(qspi);
+
+	/* The first instruction is the command */
+	lut_reg = LUT0(CMD, LUT_PAD1, op->cmd);
+
+	/* The second instruction could be ADDR, WRITE or READ */
+	if(op->n_addr)
+		lut_reg |= LUT1(ADDR, op->addr_nbits >> 1, op->n_addr * 8);
+	else if(ntx) {
+		lut_reg |= LUT1(FSL_WRITE, op->data_nbits >> 1, ntx * 8);
+		ntx = 0;
 	}
-	return -EINVAL;
+	else if(nrx) {
+		lut_reg |= LUT1(FSL_READ, op->data_nbits >> 1, nrx);
+		nrx = 0;
+	}
+
+	qspi_writel(qspi, lut_reg, base + QUADSPI_LUT(entry_base));
+	lut_reg = 0;
+
+	/* The third instruction could be WRITE, READ or DUMMY */
+	if(ntx)
+		lut_reg = LUT0(FSL_WRITE, op->data_nbits >> 1, 0);
+	else if(nrx && op->dummy_bytes)
+		lut_reg = LUT0(DUMMY, op->addr_nbits >> 1, op->dummy_bytes * 8);
+	else if(nrx) {
+		lut_reg = LUT0(FSL_READ, op->data_nbits >> 1, nrx);
+		nrx = 0;
+	}
+
+	/* The fourth instruction could only be READ */
+	if(nrx)
+		lut_reg |= LUT1(FSL_READ, op->data_nbits >> 1, rxfifo);
+
+	qspi_writel(qspi, lut_reg, base + QUADSPI_LUT(entry_base + 1));
+	qspi_writel(qspi, 0, base + QUADSPI_LUT(entry_base + 2));
+	qspi_writel(qspi, 0, base + QUADSPI_LUT(entry_base + 3));
+
+	fsl_qspi_lock_lut(qspi);
+
+	return 0;
+}
+
+/* Get the SEQID for the command */
+static int fsl_qspi_get_seqid(struct fsl_qspi *qspi, struct spinand_op *op)
+{
+	switch (op->cmd) {
+	/*
+	 * Read commands that use AHB read use a separate entry in the LUT,
+	 * as they are triggered by the controller and must not be overridden
+	 */
+	case SPINAND_CMD_READ_FROM_CACHE_FAST:
+	case SPINAND_CMD_READ_FROM_CACHE_X4:
+		return SPINAND_SEQID_AHB;
+	/*
+	 * All other commands are stored in the same LUT entry and are
+	 * replaced on each transfer
+	 */
+	default:
+		fsl_qspi_set_lut_entry(qspi, op, SPINAND_SEQID_DEFAULT);
+		return SPINAND_SEQID_DEFAULT;
+	}
+
+	return 0;
 }
 
 /*
@@ -225,7 +165,6 @@ static int fsl_qspi_get_seqid(struct fsl_qspi *qspi, u8 cmd)
 static void fsl_qspi_init_abh_read(struct fsl_qspi *qspi, struct spinand_device *spinand)
 {
 	void __iomem *base = qspi->iobase;
-	int seqid;
 
 	/* AHB configuration for access buffer 0/1/2 .*/
 	qspi_writel(qspi, QUADSPI_BUFXCR_INVALID_MSTRID, base + QUADSPI_BUF0CR);
@@ -246,8 +185,7 @@ static void fsl_qspi_init_abh_read(struct fsl_qspi *qspi, struct spinand_device 
 	qspi_writel(qspi, 0, base + QUADSPI_BUF2IND);
 
 	/* Set the default lut sequence for AHB Read. */
-	seqid = fsl_qspi_get_seqid(qspi, spinand->read_cache_op);
-	qspi_writel(qspi, seqid << QUADSPI_BFGENCR_SEQID_SHIFT,
+	qspi_writel(qspi, SPINAND_SEQID_AHB << QUADSPI_BFGENCR_SEQID_SHIFT,
 		qspi->iobase + QUADSPI_BFGENCR);
 }
 
@@ -342,9 +280,6 @@ static int fsl_qspi_spinand_controller_setup(struct spinand_device *spinand)
 		base + QUADSPI_MCR);
 	udelay(1);
 
-	/* Init the LUT table. */
-	fsl_qspi_init_lut(qspi);
-
 	/* Disable the module */
 	writel(QUADSPI_MCR_MDIS_MASK | QUADSPI_MCR_RESERVED_MASK,
 			base + QUADSPI_MCR);
@@ -375,7 +310,6 @@ static int fsl_qspi_spinand_controller_setup_late(struct spinand_device *spinand
 	struct spinand_controller *spinand_controller;
 	struct fsl_qspi_spinand_controller *controller;
 	struct fsl_qspi *qspi;
-	int ret;
 
 	spinand_controller = spinand->controller.controller;
 	controller = to_fsl_qspi_spinand_controller(spinand_controller);
@@ -383,16 +317,36 @@ static int fsl_qspi_spinand_controller_setup_late(struct spinand_device *spinand
 
 	fsl_qspi_set_map_addr(qspi, spinand);
 
+	/* Init the AHB command in LUT table. */
+	fsl_qspi_init_ahb_lut(qspi, spinand);
+
 	/* Init for AHB read */
 	fsl_qspi_init_abh_read(qspi, spinand);
 
 	return 0;
 }
 
-static int fsl_qspi_runcmd(struct fsl_qspi *qspi, u8 cmd, unsigned int addr, int len)
+static u32 fsl_qspi_spinand_addr_from_op(struct spinand_op *op) {
+	u32 addr = 0;
+
+	switch(op->n_addr) {
+		case 3:
+			addr = op->addr[0] << 16 | op->addr[1] << 8 | op->addr[2];
+			break;
+		case 2:
+			addr = op->addr[0] << 8 | op->addr[1];
+			break;
+		case 1:
+			addr = op->addr[0];
+			break;
+	}
+
+	return addr;
+}
+
+static int fsl_qspi_runcmd(struct fsl_qspi *qspi, u8 cmd, unsigned int addr, int len, u8 seqid)
 {
 	void __iomem *base = qspi->iobase;
-	int seqid;
 	u32 reg, reg2;
 	int err;
 
@@ -420,7 +374,6 @@ static int fsl_qspi_runcmd(struct fsl_qspi *qspi, u8 cmd, unsigned int addr, int
 	} while (1);
 
 	/* trigger the LUT now */
-	seqid = fsl_qspi_get_seqid(qspi, cmd);
 	qspi_writel(qspi, (seqid << QUADSPI_IPCR_SEQID_SHIFT) | len,
 			base + QUADSPI_IPCR);
 
@@ -441,10 +394,18 @@ static int fsl_qspi_runcmd(struct fsl_qspi *qspi, u8 cmd, unsigned int addr, int
 	return err;
 }
 
-/* Read out the data from the QUADSPI_RBDR buffer registers. */
-static void fsl_qspi_read(struct fsl_qspi *qspi, int len, u8 *rxbuf)
+static int fsl_qspi_runcmd_from_op(struct fsl_qspi *qspi, struct spinand_op *op)
 {
-	u32 tmp;
+	u32 addr = fsl_qspi_spinand_addr_from_op(op);
+	u8 seqid = fsl_qspi_get_seqid(qspi, op);
+	return fsl_qspi_runcmd(qspi, op->cmd, addr, op->n_tx, seqid);
+}
+
+/* Read out the data from the QUADSPI_RBDR buffer registers. */
+static void fsl_qspi_read(struct fsl_qspi *qspi, struct spinand_op *op)
+{
+	u32 tmp, len = op->n_rx;
+	u8 *rxbuf = op->rx_buf;
 	int i = 0;
 
 	while (len > 0) {
@@ -466,16 +427,18 @@ static void fsl_qspi_read(struct fsl_qspi *qspi, int len, u8 *rxbuf)
 	}
 }
 
-static int fsl_qspi_write(struct fsl_qspi *qspi, u8 opcode,
-				unsigned int to, u32 *txbuf, unsigned count)
+static int fsl_qspi_write(struct fsl_qspi *qspi, struct spinand_op *op)
 {
 	int ret, i, j, s, written = 0;
 	u32 tmp;
 	int max_tx = qspi->devtype_data->txfifo;
-	int towrite = count;
+	int towrite = op->n_tx;
+	u32 *txbuf = (u32 *)op->tx_buf;
+	u32 to = fsl_qspi_spinand_addr_from_op(op);
+	u8 seqid;
 
 	dev_dbg(qspi->dev, "to 0x%.8x:0x%.8x, len : %d\n",
-		qspi->chip_base_addr, to, count);
+		qspi->chip_base_addr, to, towrite);
 
 	while(towrite > 0) {
 		s = (towrite > max_tx) ? max_tx : towrite;
@@ -486,6 +449,7 @@ static int fsl_qspi_write(struct fsl_qspi *qspi, u8 opcode,
 		/* fill the TX data to the FIFO */
 		for (j = 0, i = ((s + 3) / 4); j < i; j++) {
 			tmp = fsl_qspi_endian_xchg(qspi, *txbuf);
+			//dev_err(qspi->dev, "tx: %x\n", tmp);
 			qspi_writel(qspi, tmp, qspi->iobase + QUADSPI_TBDR);
 			txbuf++;
 		}
@@ -496,7 +460,8 @@ static int fsl_qspi_write(struct fsl_qspi *qspi, u8 opcode,
 				qspi_writel(qspi, tmp, qspi->iobase + QUADSPI_TBDR);
 
 		/* Trigger it */
-		ret = fsl_qspi_runcmd(qspi, opcode, to + written, s);
+		seqid = fsl_qspi_get_seqid(qspi, op);
+		ret = fsl_qspi_runcmd(qspi, op->cmd, to + written, s, seqid);
 		if (ret)
 			return ret;
 
@@ -506,10 +471,10 @@ static int fsl_qspi_write(struct fsl_qspi *qspi, u8 opcode,
 		 * afterwards use the RANDOM commands to preserve the
 		 * content already written.
 		 */
-		if(opcode == SPINAND_CMD_PROG_LOAD_X4)
-			opcode = SPINAND_CMD_PROG_LOAD_RDM_DATA_X4;
-		else if(opcode == SPINAND_CMD_PROG_LOAD)
-			opcode = SPINAND_CMD_PROG_LOAD_RDM_DATA;
+		if(op->cmd == SPINAND_CMD_PROG_LOAD_X4)
+			op->cmd = SPINAND_CMD_PROG_LOAD_RDM_DATA_X4;
+		else if(op->cmd == SPINAND_CMD_PROG_LOAD)
+			op->cmd = SPINAND_CMD_PROG_LOAD_RDM_DATA;
 
 		towrite -= s;
 		written += s;
@@ -518,13 +483,13 @@ static int fsl_qspi_write(struct fsl_qspi *qspi, u8 opcode,
 	return ret;
 }
 
-static int fsl_qspi_read_ahb(struct fsl_qspi *qspi, loff_t from,
-			     size_t len, u_char *buf)
+static int fsl_qspi_read_ahb(struct fsl_qspi *qspi, struct spinand_op *op)
 {
+	u32 from = fsl_qspi_spinand_addr_from_op(op);
 	/* if necessary,ioremap buffer before AHB read, */
 	if (!qspi->ahb_addr) {
 		qspi->memmap_offs = qspi->chip_base_addr + from;
-		qspi->memmap_len = len > QUADSPI_MIN_IOMAP ? len : QUADSPI_MIN_IOMAP;
+		qspi->memmap_len = op->n_rx > QUADSPI_MIN_IOMAP ? op->n_rx : QUADSPI_MIN_IOMAP;
 
 		qspi->ahb_addr = ioremap_nocache(
 				qspi->memmap_phy + qspi->memmap_offs,
@@ -535,12 +500,12 @@ static int fsl_qspi_read_ahb(struct fsl_qspi *qspi, loff_t from,
 		}
 	/* ioremap if the data requested is out of range */
 	} else if (qspi->chip_base_addr + from < qspi->memmap_offs
-			|| qspi->chip_base_addr + from + len >
+			|| qspi->chip_base_addr + from + op->n_rx >
 			qspi->memmap_offs + qspi->memmap_len) {
 		iounmap(qspi->ahb_addr);
 
 		qspi->memmap_offs = qspi->chip_base_addr + from;
-		qspi->memmap_len = len > QUADSPI_MIN_IOMAP ? len : QUADSPI_MIN_IOMAP;
+		qspi->memmap_len = op->n_rx > QUADSPI_MIN_IOMAP ? op->n_rx : QUADSPI_MIN_IOMAP;
 		qspi->ahb_addr = ioremap_nocache(
 				qspi->memmap_phy + qspi->memmap_offs,
 				qspi->memmap_len);
@@ -552,11 +517,11 @@ static int fsl_qspi_read_ahb(struct fsl_qspi *qspi, loff_t from,
 
 	dev_dbg(qspi->dev, "ahb read from %p, len:%zd\n",
 		qspi->ahb_addr + qspi->chip_base_addr + from - qspi->memmap_offs,
-		len);
+		op->n_rx);
 
 	/* Read out the data directly from the AHB buffer.*/
-	memcpy(buf, qspi->ahb_addr + qspi->chip_base_addr + from - qspi->memmap_offs,
-		len);
+	memcpy(op->rx_buf, qspi->ahb_addr + qspi->chip_base_addr + from - qspi->memmap_offs,
+		op->n_rx);
 
 	return 0;
 }
@@ -604,19 +569,11 @@ static int fsl_qspi_spinand_controller_exec_op(struct spinand_device *spinand,
 	controller = to_fsl_qspi_spinand_controller(spinand_controller);
 	qspi = controller->qspi;
 
-	switch(op->n_addr) {
-		case 3:
-			addr = op->addr[0] << 16 | op->addr[1] << 8 | op->addr[2];
-			break;
-		case 2:
-			addr = op->addr[0] << 8 | op->addr[1];
-			break;
-		case 1:
-			addr = op->addr[0];
-			break;
-	}
-
 	switch (op->cmd) {
+	case SPINAND_CMD_READ_FROM_CACHE_X4:
+	case SPINAND_CMD_READ_FROM_CACHE_FAST:
+		ret = fsl_qspi_read_ahb(qspi, op);
+		return ret;
 	case SPINAND_CMD_PAGE_READ:
 	case SPINAND_CMD_BLK_ERASE:
 	case SPINAND_CMD_RESET:
@@ -624,9 +581,10 @@ static int fsl_qspi_spinand_controller_exec_op(struct spinand_device *spinand,
 	case SPINAND_CMD_WR_DISABLE:
 	case SPINAND_CMD_READ_ID:
 	case SPINAND_CMD_PROG_EXC:
-		ret = fsl_qspi_runcmd(qspi, op->cmd, addr, 0);
-		if (op->n_rx)
-			fsl_qspi_read(qspi, op->n_rx, op->rx_buf);
+	case SPINAND_CMD_PROG_LOAD_RDM_DATA_X4:
+	case SPINAND_CMD_PROG_LOAD_RDM_DATA:
+	case SPINAND_CMD_PROG_LOAD_X4:
+	case SPINAND_CMD_PROG_LOAD:
 		break;
 	/*
 	 * for some reason reading/writing a register doesn't work when
@@ -634,31 +592,32 @@ static int fsl_qspi_spinand_controller_exec_op(struct spinand_device *spinand,
 	 * address as one data byte and afterwards read/write the
 	 * register content byte.
 	 */
-	case SPINAND_CMD_GET_FEATURE:
-		fsl_qspi_write(qspi, op->cmd, 0, &addr, 1);
-		fsl_qspi_read(qspi, op->n_rx, op->rx_buf);
-		break;
 	case SPINAND_CMD_SET_FEATURE:
-		addr = (addr & 0xFF) | ((u32)(op->tx_buf[0]) << 8);
-		fsl_qspi_write(qspi, op->cmd, 0, &addr, 2);
-		break;
+		addr = op->tx_buf[0] << 8;
 	case SPINAND_CMD_TARGET_SELECT:
-		fsl_qspi_write(qspi, op->cmd, 0, &addr, 1);
-		break;
-	case SPINAND_CMD_READ_FROM_CACHE_X4:
-	case SPINAND_CMD_READ_FROM_CACHE_FAST:
-		ret = fsl_qspi_read_ahb(qspi, addr, op->n_rx, op->rx_buf);
-		break;
-	case SPINAND_CMD_PROG_LOAD_RDM_DATA_X4:
-	case SPINAND_CMD_PROG_LOAD_RDM_DATA:
-	case SPINAND_CMD_PROG_LOAD_X4:
-	case SPINAND_CMD_PROG_LOAD:
-		fsl_qspi_write(qspi, op->cmd, addr, (u32 *)(op->tx_buf), op->n_tx);
+	case SPINAND_CMD_GET_FEATURE:
+		op->n_tx += op->n_addr;
+		addr |= fsl_qspi_spinand_addr_from_op(op) & 0xff;
+		op->tx_buf = (u8 *)&addr;
+		op->n_addr = 0;
 		break;
 	default:
 		dev_err(qspi->dev, "Unsupported cmd 0x%.2x\n", op->cmd);
 		break;
 	}
+
+	if (op->n_tx)
+		ret = fsl_qspi_write(qspi, op);
+	else
+		ret = fsl_qspi_runcmd_from_op(qspi, op);
+
+	if (ret) {
+		dev_err(qspi->dev, "Error running cmd 0x%.2x\n", op->cmd);
+		return ret;
+	}
+
+	if (op->n_rx)
+		fsl_qspi_read(qspi, op);
 
 	if (ret) {
 		dev_err(qspi->dev, "Error running cmd 0x%.2x\n", op->cmd);
