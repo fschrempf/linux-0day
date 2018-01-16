@@ -106,6 +106,7 @@ struct nand_page_io_req {
 		const void *out;
 		void *in;
 	} oobbuf;
+	unsigned int oobmode;
 };
 
 /**
@@ -119,6 +120,15 @@ struct nand_ecc_req {
 };
 
 #define NAND_ECCREQ(str, stp) { .strength = (str), .step_size = (stp) }
+
+typedef enum {
+	NAND_ECC_NONE,
+	NAND_ECC_SOFT,
+	NAND_ECC_HW,
+	NAND_ECC_HW_SYNDROME,
+	NAND_ECC_HW_OOB_FIRST,
+	NAND_ECC_ON_DIE,
+} nand_ecc_modes_t;
 
 /**
  * struct nand_bbt - bad block table object
@@ -612,6 +622,7 @@ static inline void nanddev_io_iter_init(struct nand_device *nand,
 	iter->req.ooblen = min_t(unsigned int,
 				 iter->oobbytes_per_page - iter->req.ooboffs,
 				 iter->oobleft);
+	iter->req.oobmode = req->mode;
 }
 
 /**

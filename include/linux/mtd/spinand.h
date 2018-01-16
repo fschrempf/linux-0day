@@ -141,6 +141,20 @@ struct spinand_manufacturer {
 extern const struct spinand_manufacturer micron_spinand_manufacturer;
 extern const struct spinand_manufacturer winbond_spinand_manufacturer;
 
+struct spinand_ecc_engine_ops {
+	void (*get_status)(struct spinand_device *spinand,
+			       unsigned int status, unsigned int *corrected,
+			       unsigned int *ecc_errors);
+	void (*disable)(struct spinand_device *spinand);
+	void (*enable)(struct spinand_device *spinand);
+};
+
+struct spinand_ecc_engine {
+	u32 strength;
+	u32 steps;
+	const struct spinand_ecc_engine_ops *ops;
+};
+
 #define SPINAND_CAP_RD_X1	BIT(0)
 #define SPINAND_CAP_RD_X2	BIT(1)
 #define SPINAND_CAP_RD_X4	BIT(2)
@@ -194,6 +208,11 @@ struct spinand_device {
 		const struct spinand_manufacturer *manu;
 		void *priv;
 	} manufacturer;
+	struct {
+		struct spinand_ecc_engine *engine;
+		nand_ecc_modes_t type;
+		void *context;
+	} ecc;
 };
 
 /**

@@ -196,10 +196,58 @@ static int spinand_get_data_bits(u8 opcode)
 	}
 }
 
+static int spinand_transfer_oob(struct spinand_device *spinand,
+				const struct nand_page_io_req *req)
+{
+	struct mtd_info *mtd = spinand_to_mtd(spinand);
+	int ret = 0;
+
+	switch (req->oobmode) {
+	case MTD_OPS_PLACE_OOB:
+	case MTD_OPS_RAW:
+		memcpy(req->oobbuf.in, spinand->oobbuf + req->ooboffs,
+		       req->ooblen);
+		break;
+	case MTD_OPS_AUTO_OOB:
+		ret = mtd_ooblayout_get_databytes(mtd, req->oobbuf.in,
+						  spinand->oobbuf,
+						  req->ooboffs, req->ooblen);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
+static int spinand_fill_oob(struct spinand_device *spinand,
+			    const struct nand_page_io_req *req)
+{
+	struct mtd_info *mtd = spinand_to_mtd(spinand);
+	struct nand_device *nand = spinand_to_nand(spinand);
+	int ret = 0;
+
+	memset(spinand->oobbuf, 0xff, nanddev_per_page_oobsize(nand));
+	switch (req->oobmode) {
+	case MTD_OPS_PLACE_OOB:
+	case MTD_OPS_RAW:
+		memcpy(spinand->oobbuf + req->ooboffs, req->oobbuf.out,
+		       req->ooblen);
+		break;
+	case MTD_OPS_AUTO_OOB:
+		ret = mtd_ooblayout_set_databytes(mtd, req->oobbuf.out,
+						  spinand->oobbuf,
+						  req->ooboffs, req->ooblen);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+	return ret;
+}
+
 static int spinand_read_from_cache_op(struct spinand_device *spinand,
 				      const struct nand_page_io_req *req)
 {
-	struct nand_device *nand = &spinand->base;
+	struct nand_device *nand = spinand_to_nand(spinand);
 	struct nand_page_io_req adjreq = *req;
 	struct spinand_op op;
 	u16 column = 0;
@@ -243,8 +291,7 @@ static int spinand_read_from_cache_op(struct spinand_device *spinand,
 		       req->datalen);
 
 	if (req->ooblen)
-		memcpy(req->oobbuf.in, spinand->oobbuf + req->ooboffs,
-		       req->ooblen);
+		spinand_transfer_oob(spinand, req);
 
 	return 0;
 }
@@ -252,7 +299,7 @@ static int spinand_read_from_cache_op(struct spinand_device *spinand,
 static int spinand_write_to_cache_op(struct spinand_device *spinand,
 				     const struct nand_page_io_req *req)
 {
-	struct nand_device *nand = &spinand->base;
+	struct nand_device *nand = spinand_to_nand(spinand);
 	struct nand_page_io_req adjreq = *req;
 	struct spinand_op op;
 	u16 column = 0;
@@ -276,8 +323,7 @@ static int spinand_write_to_cache_op(struct spinand_device *spinand,
 	}
 
 	if (req->ooblen) {
-		memcpy(spinand->oobbuf + req->ooboffs, req->oobbuf.out,
-		       req->ooblen);
+		spinand_fill_oob(spinand, req);
 		adjreq.ooblen = nanddev_per_page_oobsize(nand);
 		adjreq.ooboffs = 0;
 		op.n_tx += nanddev_per_page_oobsize(nand);
@@ -390,16 +436,28 @@ static int spinand_lock_block(struct spinand_device *spinand, u8 lock)
 	return spinand_write_reg_op(spinand, REG_BLOCK_LOCK, lock);
 }
 
+static void spinand_get_ecc_status(struct spinand_device *spinand,
+				   unsigned int status,
+				   unsigned int *corrected,
+				   unsigned int *ecc_error)
+{
+	spinand->ecc.engine->ops->get_status(spinand, status, corrected,
+					     ecc_error);
+}
+
 static int spinand_read_page(struct spinand_device *spinand,
 			     const struct nand_page_io_req *req)
 {
 	struct nand_device *nand = spinand_to_nand(spinand);
+	struct mtd_info *mtd = spinand_to_mtd(spinand);
 	int ret;
+	int corrected, ecc_error;
+	u8 status;
 
 	spinand_target_select_op(spinand, req->pos.target);
 	spinand_load_page_op(spinand, req);
 
-	ret = spinand_wait(spinand, NULL);
+	ret = spinand_wait(spinand, &status);
 	if (ret < 0) {
 		pr_err("failed to load page @%llx (err = %d)\n",
 		       nanddev_pos_to_offs(nand, &req->pos), ret);
@@ -407,6 +465,17 @@ static int spinand_read_page(struct spinand_device *spinand,
 	}
 
 	spinand_read_from_cache_op(spinand, req);
+
+	if(req->oobmode != MTD_OPS_RAW) {
+		spinand_get_ecc_status(spinand, status, &corrected, &ecc_error);
+		if (ecc_error) {
+			pr_err("internal ECC error reading page 0x%x\n",
+			       req->pos.page);
+			mtd->ecc_stats.failed++;
+		} else if (corrected) {
+			mtd->ecc_stats.corrected += corrected;
+		}
+	}
 
 	return 0;
 }
@@ -721,6 +790,7 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 {
 	struct mtd_info *mtd = spinand_to_mtd(spinand);
 	struct nand_device *nand = mtd_to_nanddev(mtd);
+	struct spinand_ecc_engine *ecc_engine;
 	int ret;
 	u8 i;
 
@@ -731,6 +801,8 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 			return ret;
 		}
 	}
+
+	spinand->ecc.type = NAND_ECC_ON_DIE;
 
 	ret = spinand_detect(spinand);
 	if (ret) {
@@ -772,10 +844,6 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 		}
 	}
 
-	/*
-	 * Right now, we don't support ECC, so let the whole oob
-	 * area is available for user.
-	 */
 	mtd->_read_oob = spinand_mtd_read;
 	mtd->_write_oob = spinand_mtd_write;
 	mtd->_block_isbad = spinand_mtd_block_isbad;
@@ -783,13 +851,21 @@ int spinand_init(struct spinand_device *spinand, struct module *owner)
 	mtd->_block_isreserved = spinand_mtd_block_isreserved;
 	mtd->_erase = spinand_mtd_erase;
 
+	if (!mtd->ecc_strength)
+		mtd->ecc_strength = spinand->ecc.engine->strength;
+
+	ret = mtd_ooblayout_count_freebytes(mtd);
+	if (ret < 0)
+		ret = 0;
+	mtd->oobavail = ret;
+
 	/* execute initial commands on each target */
 	for(i = 0; i < nand->memorg.ntargets; i++) {
 		spinand_target_select_op(spinand, i);
 		/* After power up, all blocks are locked, so unlock it here. */
 		spinand_lock_block(spinand, BL_ALL_UNLOCKED);
 		/* Right now, we don't support ECC, so disable on-die ECC */
-		spinand_disable_ecc(spinand);
+		//spinand_disable_ecc(spinand);
 	}
 
 	return 0;
