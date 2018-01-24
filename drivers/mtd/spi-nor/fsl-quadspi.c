@@ -8,6 +8,7 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  */
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -465,6 +466,8 @@ static int fsl_qspi_get_seqid(struct fsl_qspi *q, struct fsl_qspi_op *op)
 	case SPINOR_OP_RDCR:
 	case SPINOR_OP_EN4B:
 	case SPINOR_OP_BRWR:
+	case SPINOR_OP_RDFSR:
+	case SPINOR_OP_RDSFDP:
 		break;
 	default:
 		dev_err(q->dev, "Unsupported cmd 0x%.2x\n", op->cmd);
@@ -526,7 +529,7 @@ fsl_qspi_runcmd(struct fsl_qspi *q, struct fsl_qspi_op *op)
 
 	/* trigger the LUT now */
 	seqid = fsl_qspi_get_seqid(q, op);
-	qspi_writel(q, (seqid << QUADSPI_IPCR_SEQID_SHIFT) | op->n_tx,
+	qspi_writel(q, (seqid << QUADSPI_IPCR_SEQID_SHIFT) | op->n_tx ? op->n_tx:op->n_rx,
 			base + QUADSPI_IPCR);
 
 	/* Wait for the interrupt. */
@@ -810,7 +813,7 @@ static void fsl_qspi_set_base_addr(struct fsl_qspi *q, struct spi_nor *nor)
 
 static void fsl_qspi_init_op(struct fsl_qspi_op *op, u8 flash_type, u8 op_type)
 {
-	memset(&op, 0, sizeof(op));
+	memset(op, 0, sizeof(*op));
 	op->flash_type = flash_type;
 	op->type = op_type;
 	op->cmd_nbits = 1;
@@ -857,7 +860,6 @@ static int fsl_qspi_nor_write_reg(struct spi_nor *nor, u8 opcode, u8 *buf, int l
 	fsl_qspi_fill_op_nbits_from_nor_proto(&op, nor->reg_proto);
 
 	if (!buf) {
-		op.n_tx = 1;
 		ret = fsl_qspi_runcmd(q, &op);
 		if (ret)
 			return ret;
@@ -889,6 +891,7 @@ static ssize_t fsl_qspi_nor_write(struct spi_nor *nor, loff_t to,
 	fsl_qspi_init_op(&op, FSL_QSPI_FLASH_TYPE_NOR, FSL_QSPI_OP_IP);
 	op.cmd = nor->program_opcode;
 	op.addr = to;
+	op.n_addr = nor->addr_width;
 	op.tx_buf = (u32 *)buf;
 	op.n_tx = len;
 	fsl_qspi_fill_op_nbits_from_nor_proto(&op, nor->write_proto);
@@ -951,6 +954,8 @@ static ssize_t fsl_qspi_nor_read(struct spi_nor *nor, loff_t from,
 	fsl_qspi_init_op(&op, FSL_QSPI_FLASH_TYPE_NOR, FSL_QSPI_OP_AHB);
 	op.cmd = nor->read_opcode;
 	op.addr = from;
+	op.n_addr = nor->addr_width;
+	op.dummy_bytes = nor->read_dummy >> 3;
 	op.n_rx = len;
 	op.rx_buf = buf;
 	fsl_qspi_fill_op_nbits_from_nor_proto(&op, nor->read_proto);
@@ -972,6 +977,7 @@ static int fsl_qspi_nor_erase(struct spi_nor *nor, loff_t offs)
 	fsl_qspi_init_op(&op, FSL_QSPI_FLASH_TYPE_NOR, FSL_QSPI_OP_IP);
 	op.cmd = nor->erase_opcode;
 	op.addr = offs;
+	op.n_addr = nor->addr_width;
 	ret = fsl_qspi_runcmd(q, &op);
 	if (ret)
 		return ret;
